@@ -31,7 +31,7 @@ min(A[i], B[j]) >= max(E[i], D[j])
               | <expr> <bin_op> <expr>
               | <access>
 
-<access>    ::= <tensor>([<position>],+)  ; [],+ here represents a nonempty comma separated list.
+<access>    ::= <tensor>[{<position>},+]  ; {},+ here represents a nonempty comma separated list.
 
 <position>  ::= <access> | <index>
 
