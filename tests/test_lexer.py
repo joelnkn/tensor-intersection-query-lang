@@ -1,4 +1,4 @@
-from tiql.lexer import Lexer, TokenType
+from tiql.parsing import Lexer, TokenType
 
 
 def test_lexer():

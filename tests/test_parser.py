@@ -1,5 +1,4 @@
-from tiql.lexer import Lexer
-from tiql.parser import Parser
+from tiql.parsing import Lexer, Parser
 from tiql.ast import Query, QueryExpr, Access, Identifier, Constant, BinaryOp, FuncCall
 
 
