@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiql"
+version = "0.1.0"
+description = "Tensor Intersection Query Language"
+authors = [{name = "Joel Manu", email = "joelnanakwaku@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "flake8",
+    "pytest",
+    "torch",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "flake8",
+    "pre-commit",
+    "mypy"
+]
+
+[tool.setuptools]
+packages = ["tiql", "tiql.parsing", "tiql.matching"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

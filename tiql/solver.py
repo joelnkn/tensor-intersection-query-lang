@@ -19,7 +19,7 @@ class Solver:
             self.device = torch.device("cpu")
             print("CUDA not available, using CPU.")
 
-    def solve(self, query: str):
+    def solve(self, query: str, data: dict):
         """
         Solves a query using the configured device.
 

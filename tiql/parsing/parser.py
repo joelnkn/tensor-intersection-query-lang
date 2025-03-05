@@ -1,6 +1,6 @@
 from typing import List, Optional
-from tiql.lexer import Token, TokenType
-from tiql.ast import (
+from tiql.parsing.lexer import Token, TokenType
+from tiql.matching.ast import (
     ASTNode,
     Query,
     QueryExpr,

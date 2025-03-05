@@ -1,19 +1,6 @@
 from .lexer import Lexer, TokenType
 from .parser import Parser
-from .ast import Query, QueryExpr, Access, Identifier, Constant, BinaryOp, FuncCall
-
-__all__ = [
-    Lexer,
-    Parser,
-    TokenType,
-    Query,
-    QueryExpr,
-    Access,
-    Identifier,
-    Constant,
-    BinaryOp,
-    FuncCall,
-]
+from tiql.matching.ast import Query
 
 
 def parse(query: str) -> Query:

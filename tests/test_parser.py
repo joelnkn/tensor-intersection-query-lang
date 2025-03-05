@@ -1,5 +1,13 @@
 from tiql.parsing import Lexer, Parser
-from tiql.ast import Query, QueryExpr, Access, Identifier, Constant, BinaryOp, FuncCall
+from tiql.matching.ast import (
+    Query,
+    QueryExpr,
+    Access,
+    Identifier,
+    Constant,
+    BinaryOp,
+    FuncCall,
+)
 
 
 def test_simple_equality():
