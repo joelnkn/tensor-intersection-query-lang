@@ -1,7 +1,7 @@
 import torch
 
 
-def sort_segment_intersect(v: torch.Tensor, w: torch.Tensor, device):
+def _sort_segment_intersect(v: torch.Tensor, w: torch.Tensor, device):
     if len(v) == 0:
         return torch.empty((0, 2), dtype=torch.long)
     v_sorted, v_indices = torch.sort(v)
@@ -27,4 +27,4 @@ def sort_segment_intersect(v: torch.Tensor, w: torch.Tensor, device):
     return torch.stack((dim1, dim2), dim=1)
 
 
-intersect = sort_segment_intersect
+intersect = _sort_segment_intersect

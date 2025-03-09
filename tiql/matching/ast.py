@@ -9,7 +9,8 @@ from typing import List, Union
 
 @dataclass
 class ASTNode:
-    pass
+    def run(self) -> None:
+        raise NotImplementedError()
 
 
 # ===================
