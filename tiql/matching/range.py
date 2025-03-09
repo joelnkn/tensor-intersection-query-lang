@@ -93,7 +93,7 @@ class Range:
             other_unshared = other.symbols.keys() - shared
 
             if other_unshared:
-                symbols = self.symbols
+                symbols = self.symbols.copy()
 
                 # reassign all symbols exclusively in `other` to appear after
                 # those in `self`. ensure correct order for future select.
@@ -103,9 +103,9 @@ class Range:
                     other_symbols.append(other.symbols(symb))
 
                 # select only indices in `other` that aren't shared with `self`
-                other_indices = other.indices[:, join_idx[:, 1]].index_select(
-                    dim=0, index=torch.tensor(other_symbols, device=self.device)
-                )
+                other_indices = other.indices[
+                    torch.tensor(other_symbols, device=self.device), join_idx[:, 1]
+                ]
 
                 # stack the two disjoint sets of indices
                 indices = torch.cat(
@@ -115,11 +115,15 @@ class Range:
                 return Range(indices, symbols, self.device)
 
             else:
-                return Range(self.indices[:, join_idx[:, 0]], self.symbols, self.device)
+                return Range(
+                    self.indices[:, join_idx[:, 0]], self.symbols.copy(), self.device
+                )
 
         else:
-            for symb, i in other.symbols.items():
-                symbols[symb] = i + len(self.symbols)
+            symbols = {
+                **self.symbols,
+                **{k: v + len(self.symbols) for k, v in other.symbols.items()},
+            }
 
             return Range(
                 torch.cat(
@@ -138,7 +142,21 @@ class Range:
         shared = self.symbols.keys() & other.symbols.keys()
         if not shared:
             # complete pairwise cross product of `self` and `other`
-            ...
+            self_expanded = self.indices.unsqueeze(-1).expand(
+                -1, -1, other.indices.shape[1]
+            )
+            other_expanded = other.indices.unsqueeze(1).expand(
+                -1, self.indices.shape[1], -1
+            )
+            new_indices = torch.cat((self_expanded, other_expanded), dim=0).reshape(
+                self.indices.shape[0] + other.indices.shape[0], -1
+            )
+
+            new_symbols = {
+                **self.symbols,
+                **{k: v + len(self.symbols) for k, v in other.symbols.items()},
+            }
+            return Range(new_indices, new_symbols, self.device)
         else:
             int_idx = self.index_intersect(other, shared)
             return self.join(other, int_idx, shared)
