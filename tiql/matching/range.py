@@ -1,4 +1,5 @@
 from __future__ import annotations
+from numbers import Number
 from typing import Sequence
 import torch
 from .intersect import intersect
@@ -19,6 +20,10 @@ class Range:
         self.indices = indices
         self.symbols = symbols
         self.device = device
+
+    @classmethod
+    def empty(cls, device: torch.Device) -> Range:
+        return cls(torch.tensor(device=device), {}, device)
 
     @classmethod
     def from_shape(
@@ -43,6 +48,7 @@ class Range:
         Returns a n by 2 tensor where rows consist of all (i,j) such that
         `self.indices[i]` matches `other.indices[j]` between all shared symbols.
         If `shared` is provided, only those symbols are considered.
+        If the tensors share no symbols, all pairs of index pairs are returned.
         """
         if shared is None:
             shared = self.symbols.keys() & other.symbols.keys()
@@ -62,8 +68,6 @@ class Range:
             self_canon_idx = index_labels[: self.indices.shape[1]]
             other_canon_idx = index_labels[-other.indices.shape[1] :]
 
-            other_unshared = other.symbols.keys() - shared
-
             return intersect(self_canon_idx, other_canon_idx, self.device)
 
         elif len(shared) == 1:
@@ -74,7 +78,14 @@ class Range:
             )
 
         else:
-            raise KeyError("MatchTensors share no symbols.")
+            # complete pairwise cross product of `self` and `other`
+            n = self.indices.shape[1]
+            m = other.indices.shape[1]
+
+            i_vals = torch.arange(n).repeat_interleave(m)
+            j_vals = torch.arange(m).repeat(n)
+
+            return torch.stack((i_vals, j_vals), dim=1)
 
     def join(self, other: Range, join_idx: torch.Tensor, shared: set = None) -> Range:
         """
@@ -140,23 +151,97 @@ class Range:
         where the shared indices between self.indices[i] and other.indices[j] are exactly the same.
         """
         shared = self.symbols.keys() & other.symbols.keys()
-        if not shared:
-            # complete pairwise cross product of `self` and `other`
-            self_expanded = self.indices.unsqueeze(-1).expand(
-                -1, -1, other.indices.shape[1]
-            )
-            other_expanded = other.indices.unsqueeze(1).expand(
-                -1, self.indices.shape[1], -1
-            )
-            new_indices = torch.cat((self_expanded, other_expanded), dim=0).reshape(
-                self.indices.shape[0] + other.indices.shape[0], -1
-            )
+        int_idx = self.index_intersect(other, shared)
+        return self.join(other, int_idx, shared)
 
-            new_symbols = {
-                **self.symbols,
-                **{k: v + len(self.symbols) for k, v in other.symbols.items()},
-            }
-            return Range(new_indices, new_symbols, self.device)
-        else:
-            int_idx = self.index_intersect(other, shared)
-            return self.join(other, int_idx, shared)
+
+class DataRange:
+    """
+    Stores a range of indices with symbols for use in matching, with corresponding data entries
+    for each index vector.
+    """
+
+    index_range: Range
+    data: torch.Tensor
+
+    def __init__(
+        self,
+        index_range: Range,
+        data: torch.Tensor,
+    ):
+        assert index_range.indices.shape[1] == data.shape[0]
+        self.index_range = index_range
+        self.data = data
+
+    @classmethod
+    def from_tensor(
+        cls,
+        tensor: torch.Tensor,
+        ordered_symbols: Sequence[str | DataRange],
+        device: torch.Device,
+    ):
+        # Get the shape and number of elements
+        shape = tensor.shape  # Tuple of dimensions
+        numel = tensor.numel()  # Total number of elements
+
+        # Generate indices using meshgrid, then reshape to (k, numel)
+        indices = torch.stack(
+            torch.meshgrid(
+                *(torch.arange(dim, dtype=torch.int64) for dim in shape),
+                indexing="ij",
+            ),
+            dim=0,
+        ).reshape(
+            len(shape), numel
+        )  # Shape: (k, numel)
+
+        # Flatten the data tensor
+        data = tensor.flatten()  # Shape: (numel,)
+        symbols = {symb: i for i, symb in enumerate(ordered_symbols)}
+
+        return DataRange(
+            Range(indices, symbols, device),
+            data,
+        )
+
+    def _intersect_cmp(self, other: DataRange | Number, comparison_fn) -> Range:
+        # TODO: add special case code for when shared == 0.
+        # Here, we should intersect over data, not indices.
+
+        int_idx = self.index_range.index_intersect(other.index_range)
+        mask = comparison_fn(self.data[int_idx[:, 0]], other.data[int_idx[:, 1]])
+        eq_idx = int_idx[mask]
+        return self.index_range.join(other.index_range, eq_idx)
+
+    def intersect_eq(self, other: DataRange | Number) -> Range:
+        return self._intersect_cmp(other, torch.eq)
+
+    def intersect_lt(self, other: DataRange | Number):
+        return self._intersect_cmp(other, torch.lt)
+
+    def intersect_le(self, other: DataRange | Number):
+        return self._intersect_cmp(other, torch.le)
+
+    def intersect_gt(self, other: DataRange | Number):
+        return self._intersect_cmp(other, torch.gt)
+
+    def intersect_ge(self, other: DataRange | Number):
+        return self._intersect_cmp(other, torch.ge)
+
+    def _cross_arithmetic(self, other: DataRange | Number, operation_fn) -> DataRange:
+        int_idx = self.index_range.index_intersect(other.index_range)
+        data = operation_fn(self.data[int_idx[:, 0]], other.data[int_idx[:, 1]])
+        new_range = self.index_range.join(
+            other.index_range,
+            int_idx,
+        )
+        return DataRange(new_range, data)
+
+    def cross_add(self, other: DataRange | Number) -> DataRange:
+        return self._cross_arithmetic(other, torch.add)
+
+    def cross_sub(self, other: DataRange | Number) -> DataRange:
+        return self._cross_arithmetic(other, torch.sub)
+
+    def cross_mul(self, other: DataRange | Number) -> DataRange:
+        return self._cross_arithmetic(other, torch.mul)

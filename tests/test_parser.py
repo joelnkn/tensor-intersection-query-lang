@@ -3,7 +3,6 @@ from tiql.matching.ast import (
     Query,
     QueryExpr,
     Access,
-    Identifier,
     Constant,
     BinaryOp,
     FuncCall,
@@ -17,9 +16,9 @@ def test_simple_equality():
     expected = Query(
         [
             QueryExpr(
-                left=Access(tensor="A", indices=[Identifier("i")]),
+                left=Access(tensor="A", indices=["i"]),
                 op="==",
-                right=Access(tensor="B", indices=[Identifier("j")]),
+                right=Access(tensor="B", indices=["j"]),
             )
         ]
     )
@@ -34,14 +33,14 @@ def test_chained_query():
     expected = Query(
         [
             QueryExpr(
-                left=Access(tensor="A", indices=[Identifier("i")]),
+                left=Access(tensor="A", indices=["i"]),
                 op="==",
-                right=Access(tensor="B", indices=[Identifier("j")]),
+                right=Access(tensor="B", indices=["j"]),
             ),
             QueryExpr(
-                left=Access(tensor="C", indices=[Identifier("k")]),
+                left=Access(tensor="C", indices=["k"]),
                 op=">=",
-                right=Access(tensor="D", indices=[Identifier("l")]),
+                right=Access(tensor="D", indices=["l"]),
             ),
         ]
     )
@@ -57,12 +56,12 @@ def test_binary_expression():
         [
             QueryExpr(
                 left=BinaryOp(
-                    left=Access("A", [Identifier("i")]),
+                    left=Access("A", ["i"]),
                     op="+",
-                    right=Access("B", [Identifier("j")]),
+                    right=Access("B", ["j"]),
                 ),
                 op=">=",
-                right=Access("C", [Identifier("i")]),
+                right=Access("C", ["i"]),
             )
         ]
     )
@@ -80,16 +79,16 @@ def test_function_call():
                 left=FuncCall(
                     func="min",
                     args=[
-                        Access("A", [Identifier("i")]),
-                        Access("B", [Identifier("j")]),
+                        Access("A", ["i"]),
+                        Access("B", ["j"]),
                     ],
                 ),
                 op=">=",
                 right=FuncCall(
                     func="max",
                     args=[
-                        Access("C", [Identifier("i")]),
-                        Access("D", [Identifier("j")]),
+                        Access("C", ["i"]),
+                        Access("D", ["j"]),
                     ],
                 ),
             )
@@ -106,9 +105,9 @@ def test_nested_access():
     expected = Query(
         [
             QueryExpr(
-                left=Access("A", [Identifier("i"), Access("B", [Identifier("j")])]),
+                left=Access("A", ["i", Access("B", ["j"])]),
                 op="==",
-                right=Access("C", [Identifier("k")]),
+                right=Access("C", ["k"]),
             )
         ]
     )
@@ -123,13 +122,9 @@ def test_constant():
     expected = Query(
         [
             QueryExpr(
-                left=BinaryOp(
-                    left=Constant(5), op="*", right=Access("A", [Identifier("i")])
-                ),
+                left=BinaryOp(left=Constant(5), op="*", right=Access("A", ["i"])),
                 op="<",
-                right=BinaryOp(
-                    left=Access("B", [Identifier("j")]), op="+", right=Constant(2)
-                ),
+                right=BinaryOp(left=Access("B", ["j"]), op="+", right=Constant(2)),
             )
         ]
     )

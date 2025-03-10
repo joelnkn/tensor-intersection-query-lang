@@ -164,7 +164,7 @@ class Parser:
                 return self.parse_access()  # It's nested access
             else:
                 self.consume()
-                return Identifier(name=token.value)  # Simple identifier
+                return token.value  # Simple identifier
 
         raise ValueError(f"Unexpected token: {token}")
 
