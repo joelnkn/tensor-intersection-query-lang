@@ -50,8 +50,9 @@ class Access(ASTNode):
     tensor: str
     indices: List[str | Access]  # positions can be identifiers or nested accesses
 
-    def run(self, device: torch.Device, data: dict, idx_range: Range = None):
-        # TODO: each item in indices can be either an identifier (str) or access (Access)
+    def run(
+        self, device: torch.Device, data: dict, idx_range: Range = None
+    ) -> DataRange:
         indices = [
             idx if isinstance(idx, str) else idx.run(device, data, idx_range)
             for idx in self.indices

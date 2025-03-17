@@ -78,6 +78,7 @@ class Range:
             )
 
         else:
+            # TODO: investigate torch.cartesion_prod
             # complete pairwise cross product of `self` and `other`
             n = self.indices.shape[1]
             m = other.indices.shape[1]
@@ -154,6 +155,13 @@ class Range:
         int_idx = self.index_intersect(other, shared)
         return self.join(other, int_idx, shared)
 
+    def get(self, symbol: str) -> torch.Tensor:
+        """
+        Returns the row corresponding to all entries of a particular symbol stored in this Range,
+        in the same order that it is stored.
+        """
+        return self.indices[self.symbols[symbol], :]
+
 
 class DataRange:
     """
@@ -177,36 +185,63 @@ class DataRange:
     def from_tensor(
         cls,
         tensor: torch.Tensor,
-        ordered_symbols: Sequence[str | DataRange],
+        index: Sequence[str | DataRange],
         device: torch.Device,
+        index_range: Range = None,
     ):
-        # Get the shape and number of elements
-        shape = tensor.shape  # Tuple of dimensions
-        numel = tensor.numel()  # Total number of elements
+        # TODO: should take and use index_range as an input (possibly None)
+        if index_range is None:
+            index_range = Range.empty(device)
+        data_indices = torch.empty(device=device)
 
-        # Generate indices using meshgrid, then reshape to (k, numel)
-        indices = torch.stack(
-            torch.meshgrid(
-                *(torch.arange(dim, dtype=torch.int64) for dim in shape),
-                indexing="ij",
-            ),
-            dim=0,
-        ).reshape(
-            len(shape), numel
-        )  # Shape: (k, numel)
+        for i, idx in enumerate(index):
+            if isinstance(idx, DataRange):
+                join_idx = index_range.index_intersect(idx.index_range)
 
-        # Flatten the data tensor
-        data = tensor.flatten()  # Shape: (numel,)
-        symbols = {symb: i for i, symb in enumerate(ordered_symbols)}
+                index_range = index_range.join(idx.index_range, join_idx)
+                data_indices = torch.cat(
+                    (data_indices[:, join_idx[:, 0]], idx.data[:, join_idx[:, 1]]),
+                    dim=0,
+                )
+            else:
+                assert isinstance(idx, str)
+
+                if idx in index_range.symbols:
+                    # TODO clamp range of idx given dimension size
+                    symbol_indices = index_range.get(idx)
+                    data_indices = torch.cat(data_indices, symbol_indices)
+
+                else:
+                    new_dim = Range.from_shape(tensor.size(i), {idx}, device)
+                    join_idx = index_range.index_intersect(new_dim)
+
+                    index_range = index_range.join(idx.index_range, join_idx)
+                    data_indices = torch.cat(
+                        (data_indices[:, join_idx[:, 0]], idx.data[:, join_idx[:, 1]]),
+                        dim=0,
+                    )
+
+        data = tensor[tuple(data_indices.T)]
 
         return DataRange(
-            Range(indices, symbols, device),
+            index_range,
             data,
         )
 
     def _intersect_cmp(self, other: DataRange | Number, comparison_fn) -> Range:
         # TODO: add special case code for when shared == 0.
         # Here, we should intersect over data, not indices.
+        # why don't we stack data and indices and run intersect directly on that?
+
+        # Note, there are 3 options.
+        # Do index intersect first, then data comparison (easy)
+        # Do data comparison first, then index intersect (easy)
+        # Do index and data comparisons at the same time.
+        #   Need general logical intersect (eg. all i,j pairs v[i] < w[j])
+        #   Stack indices and data (I, D) and run at most two logical intersects.
+        #   eg. say we have A = I_1, D_1, B = I_2, D_2, find all index tuples i,j A[i] <= B[j]
+        #   do (I_1, D_1) <= (I_2, D_2) and (I_2, -D_2) <= (I_1, -D_1), intersect the results
+        #
 
         int_idx = self.index_range.index_intersect(other.index_range)
         mask = comparison_fn(self.data[int_idx[:, 0]], other.data[int_idx[:, 1]])
