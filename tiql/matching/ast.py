@@ -38,11 +38,29 @@ class BinaryOp(ASTNode):
     op: str  # "+", "-", "*"
     right: ASTNode
 
+    def run(
+        self, device: torch.Device, data: dict, idx_range: Range = None
+    ) -> DataRange:
+        left_data: DataRange | Number = self.left.run(device, data, idx_range)
+        right_data: DataRange | Number = self.right.run(device, data, idx_range)
+        match self.op:
+            case "+":
+                return left_data.cross_add(right_data)
+            case "-":
+                return left_data.cross_sub(right_data)
+            case "*":
+                return left_data.cross_mul(right_data)
+
 
 @dataclass
 class FuncCall(ASTNode):
     func: str  # "min" or "max"
     args: List[ASTNode]  # exactly two arguments
+
+    def run(
+        self, device: torch.Device, data: dict, idx_range: Range = None
+    ) -> DataRange:
+        raise NotImplementedError()
 
 
 @dataclass
