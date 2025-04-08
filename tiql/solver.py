@@ -2,12 +2,13 @@ import typing
 import torch
 from tiql.parsing import parse
 import tiql.matching as matching
+from tiql.matching import Range
 
 
 class Solver:
-    device: torch.Device
+    device: torch.device
 
-    def __init__(self, device: torch.Device = None):
+    def __init__(self, device: torch.device = None):
         """
         Initializes the solver with the specified device.
 
@@ -24,7 +25,7 @@ class Solver:
             self.device = torch.device("cpu")
             print("CUDA not available, using CPU.")
 
-    def solve(self, query: str, data: dict) -> None:
+    def solve(self, query: str, data: dict) -> Range:
         """
         Solves a query using the configured device.
 
@@ -34,3 +35,4 @@ class Solver:
         print(f"Solving query on device: {self.device}")
         query_ast = parse(query)
         solution = query_ast.run(self.device, data)
+        return solution

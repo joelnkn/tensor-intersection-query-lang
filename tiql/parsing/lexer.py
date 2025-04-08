@@ -16,8 +16,8 @@ class TokenType(Enum):
 
 # Regex map for each token type
 token_regex = {
-    # Punctuation - brackets, parens, commas
-    TokenType.punctuation: r"[()\[\],]",
+    # Punctuation - brackets, parens, commas, right arrow
+    TokenType.punctuation: r"([()\[\],]|->)",
     # Binary operators - arithmetic
     TokenType.bin_op: r"[+\-*]",
     # Query operators - relational

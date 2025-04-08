@@ -1,6 +1,6 @@
 from typing import List, Optional
 from tiql.parsing.lexer import Token, TokenType
-from tiql.matching.ast import (
+from tiql.matching import (
     ASTNode,
     Query,
     QueryExpr,
@@ -8,7 +8,6 @@ from tiql.matching.ast import (
     FuncCall,
     BinaryOp,
     Constant,
-    Identifier,
 )
 
 
@@ -54,6 +53,7 @@ class Parser:
         Handles both single q_expr and comma-separated lists.
         """
         expressions = [self.parse_q_expr()]
+        out_indices = set()
 
         while (
             self.peek()
@@ -63,7 +63,25 @@ class Parser:
             self.consume()  # Consume comma
             expressions.append(self.parse_q_expr())
 
-        return Query(expressions=expressions)
+        if (
+            self.peek()
+            and self.peek().token_type == TokenType.punctuation
+            and self.peek().value == "->"
+        ):
+            self.consume()  # consume right arrow
+            self.consume(TokenType.punctuation, "(")
+
+            while (
+                self.peek()
+                and self.peek().token_type == TokenType.punctuation
+                and self.peek().value == ","
+            ):
+                self.consume()  # Consume comma
+                out_indices.add(self.consume(TokenType.identifier).value)
+
+            self.consume(TokenType.punctuation, ")")
+
+        return Query(expressions=expressions, out_indices=out_indices)
 
     def parse_q_expr(self) -> QueryExpr:
         """

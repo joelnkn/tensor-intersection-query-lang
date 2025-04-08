@@ -9,20 +9,27 @@ A[i] == B[j], A[i] >= B[j]
 A[i,k] == B[k,j]
 
 3.
-A[i] + B[k] >= C[i]
+A[c, i] + B[c, j] == C[c, k] -> (i,j,k)
 
 4.
-min(A[i], B[j]) >= max(E[i], D[j])
+A[i] + B[k] >= C[i]
 
 5.
+min(A[i], B[j]) >= max(E[i], D[j])
+
+6.
 5 * A[i] < B[C[j]] + 2
 
 ===========
   Grammar  
 ===========
 
-<query>     ::= <q_expr>
-              | <query>, <q_expr>
+<query>     ::= <q_list> <out_indices>
+
+<out_indices>  ::= -> ({<index>},+)       ; {},+ here represents a nonempty comma separated list.
+
+<q_list>    ::= <q_expr>
+              | <q_list>, <q_expr>
 
 <q_expr>    ::= <expr> <q_op> <expr>
 

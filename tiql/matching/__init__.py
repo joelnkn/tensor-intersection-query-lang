@@ -1,11 +1,13 @@
-from .ast import Query, QueryExpr, Access, Identifier, Constant, BinaryOp, FuncCall
+from .ast import ASTNode, Query, QueryExpr, Access, Constant, BinaryOp, FuncCall
+from .range import Range
 
 __all__ = [
-    Query,
-    QueryExpr,
-    Access,
-    Identifier,
-    Constant,
-    BinaryOp,
-    FuncCall,
+    "ASTNode",
+    "Query",
+    "QueryExpr",
+    "Access",
+    "Constant",
+    "BinaryOp",
+    "FuncCall",
+    "Range",
 ]

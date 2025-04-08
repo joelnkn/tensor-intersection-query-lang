@@ -1,6 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Union
+from dataclasses import dataclass, field
+from typing import List, Union, Set
 from numbers import Number
 import torch
 from .range import Range, DataRange
@@ -113,6 +113,7 @@ class QueryExpr(ASTNode):
 @dataclass
 class Query(ASTNode):
     expressions: List[QueryExpr]
+    out_indices: Set[str] = field(default_factory=set)
 
     def run(self, device: torch.Device, data: dict, idx_range: Range = None) -> Range:
         out = Range.empty(device)

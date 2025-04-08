@@ -1,6 +1,6 @@
 from __future__ import annotations
 from numbers import Number
-from typing import Sequence
+from typing import Sequence, Tuple
 import torch
 from .intersect import intersect
 
@@ -23,7 +23,18 @@ class Range:
 
     @classmethod
     def empty(cls, device: torch.Device) -> Range:
-        return cls(torch.tensor(device=device), {}, device)
+        return cls(torch.empty((0, 1), dtype=torch.int, device=device), {}, device)
+
+    @classmethod
+    def from_indices(
+        cls,
+        indices: Sequence[Tuple[str, ...]],
+        symbols: Tuple[str, ...],
+        device: torch.Device,
+    ) -> Range:
+        new_symbols = {symb: i for i, symb in enumerate(symbols)}
+        new_indices = torch.tensor(indices).T
+        return cls(new_indices, new_symbols, device)
 
     @classmethod
     def from_shape(
@@ -33,7 +44,7 @@ class Range:
             symbols
         ), "Number of symbols should match number of dimensions."
 
-        indices_per_dim = [torch.arange(dim, device) for dim in shape]
+        indices_per_dim = [torch.arange(dim, device=device) for dim in shape]
 
         # Create meshgrid and stack to get index tuples
         grid = torch.meshgrid(*indices_per_dim, indexing="ij")
@@ -42,6 +53,30 @@ class Range:
         # Reshape to [k, numel] and convert to same dtype as original tensor
         indices = stacked.reshape(len(shape), -1)  # k x n shape
         return cls(indices, symbols, device)
+
+    def __eq__(self, other):
+        if not isinstance(other, Range):
+            return False
+
+        # Ensure devices match
+        if self.device != other.device:
+            return False
+
+        # Ensure symbol mappings are the same
+        if self.symbols != other.symbols:
+            return False
+
+        # Extract rows in order dictated by `symbols`
+        key_order = list(self.symbols.keys())
+        self_ordered = self.indices[[self.symbols[key] for key in key_order], :]
+        # Selects rows in order of symbols
+        other_ordered = other.indices[[other.symbols[key] for key in key_order], :]
+
+        # Check if they contain the same set of index tuples (ignore order)
+        self_unique = torch.unique(self_ordered, dim=1)
+        other_unique = torch.unique(other_ordered, dim=1)
+
+        return torch.equal(self_unique, other_unique)
 
     def index_intersect(self, other: Range, shared: set = None) -> torch.tensor:
         """
@@ -162,6 +197,9 @@ class Range:
         """
         return self.indices[self.symbols[symbol], :]
 
+    def __str__(self):
+        return f"\n{self.indices}\n{self.symbols}"
+
 
 class DataRange:
     """
@@ -177,7 +215,9 @@ class DataRange:
         index_range: Range,
         data: torch.Tensor,
     ):
-        assert index_range.indices.shape[1] == data.shape[0]
+        assert (
+            index_range.indices.shape[1] == data.shape[0]
+        ), f"{index_range.indices.shape} vs {data.shape}"
         self.index_range = index_range
         self.data = data
 
@@ -192,7 +232,7 @@ class DataRange:
         # TODO: should take and use index_range as an input (possibly None)
         if index_range is None:
             index_range = Range.empty(device)
-        data_indices = torch.empty(device=device)
+        data_indices = torch.empty((0, 1), dtype=torch.int, device=device)
 
         for i, idx in enumerate(index):
             if isinstance(idx, DataRange):
@@ -212,16 +252,19 @@ class DataRange:
                     data_indices = torch.cat(data_indices, symbol_indices)
 
                 else:
-                    new_dim = Range.from_shape(tensor.size(i), {idx}, device)
+                    new_dim = Range.from_shape((tensor.size(i),), {idx: 0}, device)
                     join_idx = index_range.index_intersect(new_dim)
 
-                    index_range = index_range.join(idx.index_range, join_idx)
+                    index_range = index_range.join(new_dim, join_idx)
                     data_indices = torch.cat(
-                        (data_indices[:, join_idx[:, 0]], idx.data[:, join_idx[:, 1]]),
+                        (
+                            data_indices[:, join_idx[:, 0]],
+                            new_dim.indices[:, join_idx[:, 1]],
+                        ),
                         dim=0,
                     )
 
-        data = tensor[tuple(data_indices.T)]
+        data = tensor[tuple(data_indices)]
 
         return DataRange(
             index_range,
