@@ -3,22 +3,25 @@
 ============
 
 1.
-A[i] == B[j], A[i] >= B[j]
+A[i] == B[j] -> (i,j)
 
 2.
-A[i,k] == B[k,j]
+A[i,k] == B[k,j] -> (i,j,k)
 
 3.
 A[c, i] + B[c, j] == C[c, k] -> (i,j,k)
 
 4.
-A[i] + B[k] >= C[i]
+A[i] + B[k] >= C[i] -> (i,k)
 
 5.
 min(A[i], B[j]) >= max(E[i], D[j])
 
 6.
 5 * A[i] < B[C[j]] + 2
+
+7.
+A[i] >= B[j]
 
 ===========
   Grammar  

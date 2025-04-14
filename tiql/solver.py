@@ -1,7 +1,6 @@
 import typing
 import torch
 from tiql.parsing import parse
-import tiql.matching as matching
 from tiql.matching import Range
 
 
