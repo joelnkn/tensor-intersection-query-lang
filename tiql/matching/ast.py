@@ -13,9 +13,7 @@ from .range import Range, DataRange
 
 @dataclass
 class ASTNode:
-    def run(
-        self, device: torch.Device, data: dict, idx_range: Range | DataRange = None
-    ):
+    def run(self, device: torch.Device, data: dict, idx_range: Range | DataRange):
         raise NotImplementedError()
 
 
@@ -28,7 +26,7 @@ class ASTNode:
 class Constant(ASTNode):
     value: Union[int, float]
 
-    def run(self, device: torch.Device, data: dict, idx_range: Range = None):
+    def run(self, device: torch.Device, data: dict, idx_range: Range):
         return self.value
 
 
@@ -38,9 +36,7 @@ class BinaryOp(ASTNode):
     op: str  # "+", "-", "*"
     right: ASTNode
 
-    def run(
-        self, device: torch.Device, data: dict, idx_range: Range = None
-    ) -> DataRange:
+    def run(self, device: torch.Device, data: dict, idx_range: Range) -> DataRange:
         left_data: DataRange | Number = self.left.run(device, data, idx_range)
         right_data: DataRange | Number = self.right.run(device, data, idx_range)
         match self.op:
@@ -57,9 +53,7 @@ class FuncCall(ASTNode):
     func: str  # "min" or "max"
     args: List[ASTNode]  # exactly two arguments
 
-    def run(
-        self, device: torch.Device, data: dict, idx_range: Range = None
-    ) -> DataRange:
+    def run(self, device: torch.Device, data: dict, idx_range: Range) -> DataRange:
         raise NotImplementedError()
 
 
@@ -68,14 +62,12 @@ class Access(ASTNode):
     tensor: str
     indices: List[str | Access]  # positions can be identifiers or nested accesses
 
-    def run(
-        self, device: torch.Device, data: dict, idx_range: Range = None
-    ) -> DataRange:
+    def run(self, device: torch.Device, data: dict, idx_range: Range) -> DataRange:
         indices = [
             idx if isinstance(idx, str) else idx.run(device, data, idx_range)
             for idx in self.indices
         ]
-        return DataRange.from_tensor(data[self.tensor], indices, device)
+        return DataRange.from_tensor(data[self.tensor], indices, device, idx_range)
 
 
 # ===================
@@ -89,7 +81,7 @@ class QueryExpr(ASTNode):
     op: str  # "==", ">=", "<=", "<", ">"
     right: ASTNode
 
-    def run(self, device: torch.Device, data: dict, idx_range: Range = None) -> Range:
+    def run(self, device: torch.Device, data: dict, idx_range: Range) -> Range:
         left_data: DataRange | Number = self.left.run(device, data, idx_range)
         right_data: DataRange | Number = self.right.run(device, data, idx_range)
 

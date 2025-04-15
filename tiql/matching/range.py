@@ -241,9 +241,16 @@ class DataRange:
         index_range: Range = None,
     ):
         # TODO: should take and use index_range as an input (possibly None)
+
+        # index_range stores all tuples of input indices into the query that correspond to a
+        # specifc data value.
         if index_range is None:
             index_range = Range.empty(device)
-        data_indices = torch.empty((0, 1), dtype=torch.int, device=device)
+
+        # all the values needed to index into the real tensor, built iteratively
+        data_indices = torch.empty(
+            (0, index_range.indices.shape[1]), dtype=torch.int, device=device
+        )
 
         for i, idx in enumerate(index):
             if isinstance(idx, DataRange):
@@ -259,8 +266,8 @@ class DataRange:
 
                 if idx in index_range.symbols:
                     # TODO clamp range of idx given dimension size
-                    symbol_indices = index_range.get(idx)
-                    data_indices = torch.cat(data_indices, symbol_indices)
+                    symbol_indices = index_range.get(idx).unsqueeze(0)
+                    data_indices = torch.cat((data_indices, symbol_indices), dim=0)
 
                 else:
                     new_dim = Range.from_shape((tensor.size(i),), {idx: 0}, device)

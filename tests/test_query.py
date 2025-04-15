@@ -3,10 +3,15 @@ import torch
 from tiql.solver import Solver
 from tiql.matching import Range
 
-simple_tensor_data = {
+tensor_data = {
     "A": torch.tensor([[1, 2], [3, 4]]),  # Shape (2,2)
     "B": torch.tensor([1, 3]),  # Shape (2,)
     "C": torch.tensor([[2, 5], [4, 7]]),  # Shape (2,2)
+    "X": torch.tensor([[10, 20, 30], [40, 50, 60], [70, 80, 90]]),  # Shape (3, 3)
+    "Y": torch.tensor([10, 60, 90]),  # Shape (3,)
+    "Z": torch.tensor([[20, 40, 60], [50, 40, 90], [80, 100, 60]]),  # Shape (3, 3)
+    "W": torch.tensor([[1, 0, 1], [0, 1, 0], [1, 1, 1]]),  # Shape (3, 3)
+    "ONE": torch.tensor([1]),
 }
 
 solver = Solver()
@@ -29,7 +34,25 @@ solver = Solver()
     ],
 )
 def test_simple_eq_query(query, expected_output):
-    result = solver.solve(query, simple_tensor_data)
+    result = solver.solve(query, tensor_data)
+    assert_equal_output(result, expected_output, query)
+
+
+@pytest.mark.parametrize(
+    "query, expected_output",
+    [
+        (
+            "W[i, j] == ONE[z], X[i, j] < Z[i, j]",
+            torch.tensor([[0, 0, 2, 2], [0, 2, 0, 1], [0, 0, 0, 0]]),
+        ),
+        (
+            "A[i, j] == B[k], A[k,l] == B[k]",
+            torch.tensor([[0, 1], [0, 0], [0, 1], [0, 0]]),
+        ),
+    ],
+)
+def test_multiple_query(query, expected_output):
+    result = solver.solve(query, tensor_data)
     assert_equal_output(result, expected_output, query)
 
 
