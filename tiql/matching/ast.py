@@ -92,6 +92,8 @@ class QueryExpr(ASTNode):
     def run(self, device: torch.Device, data: dict, idx_range: Range = None) -> Range:
         left_data: DataRange | Number = self.left.run(device, data, idx_range)
         right_data: DataRange | Number = self.right.run(device, data, idx_range)
+
+        # print(f"Expr inputs: \n{left_data}\n\n{self.op}\n\n{right_data}\n\n")
         match self.op:
             case "==":
                 return left_data.intersect_eq(right_data)
@@ -113,11 +115,11 @@ class QueryExpr(ASTNode):
 @dataclass
 class Query(ASTNode):
     expressions: List[QueryExpr]
-    out_indices: Set[str] = field(default_factory=set)
+    out_indices: tuple[str] = field(default_factory=tuple)
 
     def run(self, device: torch.Device, data: dict, idx_range: Range = None) -> Range:
         out = Range.empty(device)
         for expr in self.expressions:
             out = expr.run(device, data, out)
 
-        return out
+        return out.to_tensor()

@@ -53,7 +53,7 @@ class Parser:
         Handles both single q_expr and comma-separated lists.
         """
         expressions = [self.parse_q_expr()]
-        out_indices = set()
+        out_indices = []
 
         while (
             self.peek()
@@ -77,11 +77,11 @@ class Parser:
                 and self.peek().value == ","
             ):
                 self.consume()  # Consume comma
-                out_indices.add(self.consume(TokenType.identifier).value)
+                out_indices.append(self.consume(TokenType.identifier).value)
 
             self.consume(TokenType.punctuation, ")")
 
-        return Query(expressions=expressions, out_indices=out_indices)
+        return Query(expressions=expressions, out_indices=tuple(out_indices))
 
     def parse_q_expr(self) -> QueryExpr:
         """

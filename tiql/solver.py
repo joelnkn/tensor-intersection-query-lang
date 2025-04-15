@@ -1,4 +1,3 @@
-import typing
 import torch
 from tiql.parsing import parse
 from tiql.matching import Range

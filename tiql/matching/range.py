@@ -106,9 +106,10 @@ class Range:
             return intersect(self_canon_idx, other_canon_idx, self.device)
 
         elif len(shared) == 1:
+            shared_index = next(iter(shared))
             return intersect(
-                self.indices[[self.symbols[0]], :].squeeze(0),
-                other.indices[[other.symbols[0]], :].squeeze(0),
+                self.indices[self.symbols[shared_index], :],
+                other.indices[other.symbols[shared_index], :],
                 self.device,
             )
 
@@ -144,15 +145,13 @@ class Range:
 
                 # reassign all symbols exclusively in `other` to appear after
                 # those in `self`. ensure correct order for future select.
-                other_symbols = []
+                other_unshared_indices = []
                 for i, symb in enumerate(other_unshared):
                     symbols[symb] = i + len(self.symbols)
-                    other_symbols.append(other.symbols(symb))
+                    other_unshared_indices.append(other.symbols[symb])
 
                 # select only indices in `other` that aren't shared with `self`
-                other_indices = other.indices[
-                    torch.tensor(other_symbols, device=self.device), join_idx[:, 1]
-                ]
+                other_indices = other.indices[other_unshared_indices][:, join_idx[:, 1]]
 
                 # stack the two disjoint sets of indices
                 indices = torch.cat(
@@ -197,8 +196,20 @@ class Range:
         """
         return self.indices[self.symbols[symbol], :]
 
+    def to_tensor(self, symbol_order: tuple[str] = None):
+        """
+        Given an ordering of symbols of length k, return a k by n tensor with rows corresponding the
+        index dimensions in the specified order. If no order is given, the all symbols will be used
+        in alphabetical order.
+        """
+        if symbol_order is None:
+            symbol_order = tuple(sorted(self.symbols.keys()))
+
+        symbols = [self.symbols[symb] for symb in symbol_order]
+        return self.indices[symbols, :]
+
     def __str__(self):
-        return f"\n{self.indices}\n{self.symbols}"
+        return f"{self.symbols}\n{self.indices}"
 
 
 class DataRange:
@@ -323,3 +334,6 @@ class DataRange:
 
     def cross_mul(self, other: DataRange | Number) -> DataRange:
         return self._cross_arithmetic(other, torch.mul)
+
+    def __str__(self):
+        return f"{self.index_range}\n{self.data}"
