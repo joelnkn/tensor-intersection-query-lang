@@ -12,30 +12,24 @@ class Range:
 
     indices: torch.Tensor  # (k,n) tensor for k dimensional range
     symbols: dict[str, int]  # maps each symbol to its corresponding row in `indices`
-    # size: dict[str, int]  # maps each symbol to the size of its corresponding dimension
+    size: dict[str, int]  # maps each symbol to the size of its corresponding dimension
     device: torch.Device
 
     def __init__(
-        self, indices: torch.Tensor, symbols: dict[str, int], device: torch.Device
+        self,
+        indices: torch.Tensor,
+        symbols: dict[str, int],
+        size: dict[str, int],
+        device: torch.Device,
     ):
         self.indices = indices
         self.symbols = symbols
+        self.size = size
         self.device = device
 
     @classmethod
     def empty(cls, device: torch.Device) -> Range:
-        return cls(torch.empty((0, 1), dtype=torch.int, device=device), {}, device)
-
-    @classmethod
-    def from_indices(
-        cls,
-        indices: Sequence[Tuple[str, ...]],
-        symbols: Tuple[str, ...],
-        device: torch.Device,
-    ) -> Range:
-        new_symbols = {symb: i for i, symb in enumerate(symbols)}
-        new_indices = torch.tensor(indices).T
-        return cls(new_indices, new_symbols, device)
+        return cls(torch.empty((0, 1), dtype=torch.int, device=device), {}, {}, device)
 
     @classmethod
     def from_shape(
@@ -53,7 +47,9 @@ class Range:
 
         # Reshape to [k, numel] and convert to same dtype as original tensor
         indices = stacked.reshape(len(shape), -1)  # k x n shape
-        return cls(indices, symbols, device)
+
+        size = {symb: d for symb, d in zip(symbols, shape)}
+        return cls(indices, symbols, size, device)
 
     def __eq__(self, other):
         if not isinstance(other, Range):
@@ -159,11 +155,14 @@ class Range:
                     (self.indices[:, join_idx[:, 0]], other_indices), dim=0
                 )
 
-                return Range(indices, symbols, self.device)
+                return Range(indices, symbols, self.size | other.size, self.device)
 
             else:
                 return Range(
-                    self.indices[:, join_idx[:, 0]], self.symbols.copy(), self.device
+                    self.indices[:, join_idx[:, 0]],
+                    self.symbols.copy(),
+                    self.size.copy(),
+                    self.device,
                 )
 
         else:
@@ -178,6 +177,7 @@ class Range:
                     dim=0,
                 ),
                 symbols,
+                self.size | other.size,
                 self.device,
             )
 
@@ -312,7 +312,8 @@ class DataRange:
         if out_indices is not None:
             for symb in self.index_range.symbols:
                 if symb not in out_indices:
-                    k = 3  # Size along the reduction dimension
+                    # Size along the reduction dimension
+                    k = self.index_range.size[symb]
 
                     num_indices = result.indices.shape[0]
                     exclude_idx = result.symbols[symb]
