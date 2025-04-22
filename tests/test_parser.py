@@ -20,7 +20,8 @@ def test_simple_equality():
                 op="==",
                 right=Access(tensor="B", indices=["j"]),
             )
-        ]
+        ],
+        out_indices=("i", "j"),
     )
 
     assert ast == expected
@@ -42,7 +43,8 @@ def test_chained_query():
                 op=">=",
                 right=Access(tensor="D", indices=["l"]),
             ),
-        ]
+        ],
+        out_indices=("i", "j", "k", "l"),
     )
 
     assert ast == expected
@@ -63,7 +65,8 @@ def test_binary_expression():
                 op=">=",
                 right=Access("C", ["i"]),
             )
-        ]
+        ],
+        out_indices=("i", "j"),
     )
 
     assert ast == expected
@@ -92,7 +95,8 @@ def test_function_call():
                     ],
                 ),
             )
-        ]
+        ],
+        out_indices=("i", "j"),
     )
 
     assert ast == expected
@@ -109,7 +113,8 @@ def test_nested_access():
                 op="==",
                 right=Access("C", ["k"]),
             )
-        ]
+        ],
+        out_indices=("i", "j", "k"),
     )
 
     assert ast == expected
@@ -126,7 +131,8 @@ def test_constant():
                 op="<",
                 right=BinaryOp(left=Access("B", ["j"]), op="+", right=Constant(2)),
             )
-        ]
+        ],
+        out_indices=("i", "j"),
     )
 
     assert ast == expected

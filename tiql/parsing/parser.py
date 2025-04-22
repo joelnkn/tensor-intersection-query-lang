@@ -16,6 +16,8 @@ class Parser:
         self.tokens = tokens
         self.current_pos = 0
 
+        self.all_indices = set()
+
     def peek(self) -> Optional[Token]:
         if self.current_pos < len(self.tokens):
             return self.tokens[self.current_pos]
@@ -53,7 +55,7 @@ class Parser:
         Handles both single q_expr and comma-separated lists.
         """
         expressions = [self.parse_q_expr()]
-        out_indices = []
+        out_indices = None
 
         while (
             self.peek()
@@ -71,17 +73,23 @@ class Parser:
             self.consume()  # consume right arrow
             self.consume(TokenType.punctuation, "(")
 
+            out_list = [self.consume(TokenType.identifier).value]
+
             while (
                 self.peek()
                 and self.peek().token_type == TokenType.punctuation
                 and self.peek().value == ","
             ):
                 self.consume()  # Consume comma
-                out_indices.append(self.consume(TokenType.identifier).value)
+                out_list.append(self.consume(TokenType.identifier).value)
 
             self.consume(TokenType.punctuation, ")")
+            out_indices = tuple(out_list)
+        else:
+            out_indices = tuple(sorted(self.all_indices))
 
-        return Query(expressions=expressions, out_indices=tuple(out_indices))
+        print(out_indices)
+        return Query(expressions=expressions, out_indices=out_indices)
 
     def parse_q_expr(self) -> QueryExpr:
         """
@@ -181,7 +189,7 @@ class Parser:
             if self._lookahead_is_punctuation("["):
                 return self.parse_access()  # It's nested access
             else:
-                self.consume()
+                self.all_indices.add(self.consume().value)
                 return token.value  # Simple identifier
 
         raise ValueError(f"Unexpected token: {token}")

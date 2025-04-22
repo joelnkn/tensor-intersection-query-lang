@@ -12,6 +12,7 @@ class Range:
 
     indices: torch.Tensor  # (k,n) tensor for k dimensional range
     symbols: dict[str, int]  # maps each symbol to its corresponding row in `indices`
+    # size: dict[str, int]  # maps each symbol to the size of its corresponding dimension
     device: torch.Device
 
     def __init__(
@@ -196,15 +197,12 @@ class Range:
         """
         return self.indices[self.symbols[symbol], :]
 
-    def to_tensor(self, symbol_order: tuple[str] = None):
+    def to_tensor(self, symbol_order: tuple[str]):
         """
         Given an ordering of symbols of length k, return a k by n tensor with rows corresponding the
         index dimensions in the specified order. If no order is given, the all symbols will be used
         in alphabetical order.
         """
-        if symbol_order is None:
-            symbol_order = tuple(sorted(self.symbols.keys()))
-
         symbols = [self.symbols[symb] for symb in symbol_order]
         return self.indices[symbols, :]
 
@@ -289,7 +287,9 @@ class DataRange:
             data,
         )
 
-    def _intersect_cmp(self, other: DataRange | Number, comparison_fn) -> Range:
+    def _intersect_cmp(
+        self, other: DataRange | Number, comparison_fn, out_indices: tuple[str]
+    ) -> Range:
         # TODO: add special case code for when shared == 0.
         # Here, we should intersect over data, not indices.
         # why don't we stack data and indices and run intersect directly on that?
@@ -307,22 +307,49 @@ class DataRange:
         int_idx = self.index_range.index_intersect(other.index_range)
         mask = comparison_fn(self.data[int_idx[:, 0]], other.data[int_idx[:, 1]])
         eq_idx = int_idx[mask]
-        return self.index_range.join(other.index_range, eq_idx)
+        result = self.index_range.join(other.index_range, eq_idx)
 
-    def intersect_eq(self, other: DataRange | Number) -> Range:
-        return self._intersect_cmp(other, torch.eq)
+        if out_indices is not None:
+            for symb in self.index_range.symbols:
+                if symb not in out_indices:
+                    k = 3  # Size along the reduction dimension
 
-    def intersect_lt(self, other: DataRange | Number):
-        return self._intersect_cmp(other, torch.lt)
+                    num_indices = result.indices.shape[0]
+                    exclude_idx = result.symbols[symb]
+                    new_symbols = {
+                        k: (v - 1 if v > exclude_idx else v)
+                        for k, v in result.symbols.items()
+                        if k != symb
+                    }
+                    keep_indices = [j for j in range(num_indices) if j != exclude_idx]
 
-    def intersect_le(self, other: DataRange | Number):
-        return self._intersect_cmp(other, torch.le)
+                    # Sort lexicographically (torch.unique implicitly does this)
+                    unique_indices, counts = torch.unique(
+                        result.indices[keep_indices, :],
+                        dim=1,
+                        return_counts=True,
+                    )
 
-    def intersect_gt(self, other: DataRange | Number):
-        return self._intersect_cmp(other, torch.gt)
+                    # Check that every unique group appears exactly `k` times
+                    result.indices = unique_indices[:, counts == k]
+                    result.symbols = new_symbols
 
-    def intersect_ge(self, other: DataRange | Number):
-        return self._intersect_cmp(other, torch.ge)
+        return result
+
+    def intersect_eq(self, other: DataRange | Number, out_indices: tuple[str]) -> Range:
+        return self._intersect_cmp(other, torch.eq, out_indices)
+
+    def intersect_lt(self, other: DataRange | Number, out_indices: tuple[str]) -> Range:
+        return self._intersect_cmp(other, torch.lt, out_indices)
+
+    def intersect_le(self, other: DataRange | Number, out_indices: tuple[str]) -> Range:
+        return self._intersect_cmp(other, torch.le, out_indices)
+
+    def intersect_gt(self, other: DataRange | Number, out_indices: tuple[str]) -> Range:
+        return self._intersect_cmp(other, torch.gt, out_indices)
+
+    def intersect_ge(self, other: DataRange | Number, out_indices: tuple[str]) -> Range:
+        return self._intersect_cmp(other, torch.ge, out_indices)
 
     def _cross_arithmetic(self, other: DataRange | Number, operation_fn) -> DataRange:
         int_idx = self.index_range.index_intersect(other.index_range)
