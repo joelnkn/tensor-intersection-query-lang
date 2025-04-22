@@ -1,6 +1,6 @@
 from __future__ import annotations
 from numbers import Number
-from typing import Sequence, Tuple
+from typing import Sequence
 import torch
 from .intersect import intersect
 
@@ -256,7 +256,10 @@ class DataRange:
 
                 index_range = index_range.join(idx.index_range, join_idx)
                 data_indices = torch.cat(
-                    (data_indices[:, join_idx[:, 0]], idx.data[:, join_idx[:, 1]]),
+                    (
+                        data_indices[:, join_idx[:, 0]],
+                        idx.data[join_idx[:, 1]].unsqueeze(0),
+                    ),
                     dim=0,
                 )
             else:

@@ -12,6 +12,11 @@ tensor_data = {
     "W": torch.tensor([[1, 0, 1], [0, 1, 0], [1, 1, 1]]),  # Shape (3, 3)
     "G": torch.tensor([[2, 1, 3], [4, 5, 6]]),
     "H": torch.tensor([[4, 6, 5], [2, 1, 3]]),
+    "A_n": torch.tensor([[0, 1], [2, 0]]),
+    "B_n": torch.tensor([10, 20, 30]),  # B is a 1D tensor (list)
+    "C_n": torch.tensor([[10, 20], [30, 10]]),
+    "B_m": torch.tensor([10, 99, 30]),  # B is a 1D tensor (list)
+    "C_m": torch.tensor([[10, 20], [30, 42]]),
     "ONE": torch.tensor([1]),
 }
 
@@ -65,6 +70,18 @@ def test_multiple_query(query, expected_output):
     ],
 )
 def test_reduction_indices(query, expected_output):
+    result = solver.solve(query, tensor_data)
+    assert_equal_output(result, expected_output, query)
+
+
+@pytest.mark.parametrize(
+    "query, expected_output",
+    [
+        ("B_n[A_n[i,j]] == C_n[i,j]", torch.tensor([[0, 0, 1, 1], [0, 1, 0, 1]])),
+        ("B_m[A_n[i,j]] == C_m[i,j]", torch.tensor([[0, 1], [0, 0]])),
+    ],
+)
+def test_nested_access(query, expected_output):
     result = solver.solve(query, tensor_data)
     assert_equal_output(result, expected_output, query)
 
