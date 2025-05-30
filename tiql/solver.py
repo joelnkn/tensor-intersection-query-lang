@@ -1,6 +1,27 @@
+from typing import Optional
 import torch
 from tiql.parsing import parse
 from tiql.matching import Range
+
+
+def intersect(query: str, device: Optional[torch.device] = None, **kwargs):
+    """
+    Solves a tensor index query of the form 'A[i] + B[j] == C[k]' and returns all index
+    tuples that satisfy the expression.
+
+    Args:
+        query (str): The query string to solve, e.g., "A[i] + B[j] == C[k]".
+        device (torch.device, optional): The device to perform computation on
+            (e.g., torch.device('cuda') or torch.device('cpu')). If not provided,
+            CUDA will be used if available, otherwise CPU.
+        **kwargs: Named tensors used in the query (e.g., A=tensorA, B=tensorB, C=tensorC).
+
+    Returns:
+        torch.Tensor: A tensor of shape (D, N) where each column is a D-dimensional tuple
+        of indices (e.g., (i, j, k)) that satisfy the query.
+    """
+    solver = Solver(device=device)
+    return solver.solve(query, kwargs)
 
 
 class Solver:
