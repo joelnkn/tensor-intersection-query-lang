@@ -88,7 +88,10 @@ class Parser:
         else:
             out_indices = tuple(sorted(self.all_indices))
 
-        print(out_indices)
+        if self.peek().token_type != TokenType.eof:
+            raise ValueError("Expression failed to parse.")
+
+        print("Output: ", out_indices)
         return Query(expressions=expressions, out_indices=out_indices)
 
     def parse_q_expr(self) -> QueryExpr:

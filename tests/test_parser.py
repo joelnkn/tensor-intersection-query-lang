@@ -8,6 +8,8 @@ from tiql.matching.ast import (
     FuncCall,
 )
 
+# TODO: add test cases for expressions that should *not* parse
+
 
 def test_simple_equality():
     query = "A[i] == B[j]"
