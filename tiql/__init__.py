@@ -1,3 +1,3 @@
-from .solver import Solver, intersect
+from .solver import Solver, intersect, table_intersect
 
-__all__ = ["Solver", "intersect"]
+__all__ = ["Solver", "intersect", "table_intersect"]

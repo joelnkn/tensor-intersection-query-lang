@@ -91,18 +91,27 @@ class Parser:
         if self.peek().token_type != TokenType.eof:
             raise ValueError("Expression failed to parse.")
 
-        print("Output: ", out_indices)
-        return Query(expressions=expressions, out_indices=out_indices)
+        # print("Output: ", out_indices)
+        return Query(
+            expressions=expressions,
+            out_indices=out_indices,
+            idx_order=out_indices
+            + tuple(idx for idx in self.all_indices if idx not in out_indices),
+        )
 
     def parse_q_expr(self) -> QueryExpr:
         """
-        q_expr ::= expr query_op expr
+        q_expr ::= expr query_op expr | expr
         """
         left = self.parse_expr()
-        op_token = self.consume(TokenType.query_op)  # relational op
-        right = self.parse_expr()
+        if self.peek().token_type == TokenType.query_op:
+            op_value = self.consume(TokenType.query_op).value  # relational op
+            right = self.parse_expr()
+        else:
+            op_value = None
+            right = None
 
-        return QueryExpr(left=left, op=op_token.value, right=right)
+        return QueryExpr(left=left, op=op_value, right=right)
 
     def parse_expr(self) -> ASTNode:
         """

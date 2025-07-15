@@ -24,6 +24,14 @@ def intersect(query: str, device: Optional[torch.device] = None, **kwargs):
     return solver.solve(query, kwargs)
 
 
+def table_intersect(
+    query: str, device: Optional[torch.device] = None, **kwargs
+) -> torch.tensor:
+    """Intersect using an intersection table backend"""
+    solver = Solver(device=device)
+    return solver.solve(query, kwargs, table=True)
+
+
 class Solver:
     device: torch.device
 
@@ -39,19 +47,23 @@ class Solver:
             self.device = device
         elif torch.cuda.is_available():
             self.device = torch.device("cuda")  # Default CUDA device
-            print("Using CUDA:", torch.cuda.get_device_name(0))
+            # print("Using CUDA:", torch.cuda.get_device_name(0))
         else:
             self.device = torch.device("cpu")
-            print("CUDA not available, using CPU.")
+            # print("CUDA not available, using CPU.")
 
-    def solve(self, query: str, data: dict) -> Range:
+    def solve(self, query: str, data: dict, table: bool = False) -> torch.tensor:
         """
         Solves a query using the configured device.
 
         Args:
             query: The input query to solve.
         """
-        print(f"Solving query on device: {self.device}")
+        # print(f"Solving query on device: {self.device}")
         query_ast = parse(query)
-        solution = query_ast.run(self.device, data)
+        if table:
+            solution = query_ast.table_run(self.device, data)
+        else:
+            solution = query_ast.run(self.device, data)
+
         return solution

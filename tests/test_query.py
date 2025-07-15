@@ -33,6 +33,7 @@ solver = Solver()
     [
         ("A[i, j] == B[j]", torch.tensor([[0], [0]])),
         ("A[i,j] == B[k]", torch.tensor([[1, 0], [0, 0], [1, 0]])),
+        ("A[i,j]", torch.tensor([[0, 0, 1, 1], [0, 1, 0, 1]])),
         ("A[i, j] + B[j] == C[i, j]", torch.tensor([[0, 0, 1, 1], [0, 1, 0, 1]])),
         ("A[i, j] + B[j] == C[k, i]", torch.tensor([[0, 1], [0, 1], [0, 1]])),
         ("A[i,j] < C[i,j]", torch.tensor([[0, 0, 1, 1], [0, 1, 0, 1]])),

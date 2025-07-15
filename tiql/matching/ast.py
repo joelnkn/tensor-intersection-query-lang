@@ -4,6 +4,7 @@ from typing import List, Union
 from numbers import Number
 import torch
 from .range import Range, DataRange
+from .indirecteinsum import einsum_gs
 
 
 # ===================
@@ -20,6 +21,15 @@ class ASTNode:
         out_indices: tuple[str],
         idx_range: Range | DataRange,
     ):
+        raise NotImplementedError()
+
+    def table_run(
+        self,
+        device: torch.Device,
+        data: dict,
+        out_indices: tuple[str],
+        idx_order: tuple[str],
+    ) -> torch.Tensor:
         raise NotImplementedError()
 
 
@@ -69,6 +79,31 @@ class BinaryOp(ASTNode):
             case "*":
                 return left_data.cross_mul(right_data)
 
+    def table_run(
+        self,
+        device: torch.Device,
+        data: dict,
+        out_indices: tuple[str],
+        idx_order: tuple[str],
+    ) -> torch.Tensor:
+        """
+        Returns:
+            torch.Tensor: ...
+        """
+        left_table: torch.Tensor = self.left.table_run(
+            device, data, out_indices, idx_order
+        )
+        right_table: torch.Tensor = self.right.table_run(
+            device, data, out_indices, idx_order
+        )
+        match self.op:
+            case "+":
+                return left_table + right_table
+            case "-":
+                return left_table - right_table
+            case "*":
+                return left_table * right_table
+
 
 @dataclass
 class FuncCall(ASTNode):
@@ -107,6 +142,61 @@ class Access(ASTNode):
         ]
         return DataRange.from_tensor(data[self.tensor], indices, device, idx_range)
 
+    def table_run(
+        self,
+        device: torch.Device,
+        data: dict,
+        out_indices: tuple[str],
+        idx_order: tuple[str],
+    ) -> torch.Tensor:
+        """
+        Returns:
+            torch.Tensor: ...
+        """
+
+        # A[i, k] == B[j, k]   ->  L(I, J, K)  == (I, J, K)
+
+        # L[i,k] = A[i, i, B[k]]
+        # L.uns(1) => L
+
+        tensor_shape = data[self.tensor].shape
+        out = torch.zeros(
+            tuple(
+                tensor_shape[self.indices.index(idx)]
+                for idx in idx_order
+                if idx in self.indices
+            ),
+            dtype=torch.long,
+        )
+        gather_query = f"Out[{','.join([self.format_index(idx, idx_order) for idx in idx_order if idx in self.indices])}] = {self.text(idx_order)}"
+        out = einsum_gs(
+            gather_query,
+            Out=out,
+            **data,
+        )
+
+        # einsum_query = f"{''.join([self.format_index(idx, idx_order) for idx in idx_order if idx in self.indices])}->"
+
+        for i, idx in enumerate(idx_order):
+            if idx not in self.indices:
+                out = out.unsqueeze(i)
+
+        return out
+
+    def text(self, idx_order) -> str:
+        indices = [
+            (
+                self.format_index(idx, idx_order)
+                if isinstance(idx, str)
+                else idx.text(idx_order)
+            )
+            for idx in self.indices
+        ]
+        return f"{self.tensor}[{','.join(indices)}]"
+
+    def format_index(self, idx: str, idx_order: tuple[str]):
+        return chr(idx_order.index(idx) + 97)
+
 
 # ===================
 # Query Expressions
@@ -116,8 +206,8 @@ class Access(ASTNode):
 @dataclass
 class QueryExpr(ASTNode):
     left: ASTNode
-    op: str  # "==", ">=", "<=", "<", ">"
-    right: ASTNode
+    op: str | None  # "==", ">=", "<=", "<", ">"
+    right: ASTNode | None
 
     def run(
         self,
@@ -129,6 +219,10 @@ class QueryExpr(ASTNode):
         left_data: DataRange | Number = self.left.run(
             device, data, out_indices, idx_range
         )
+
+        if self.op is None:
+            return left_data.index_range
+
         right_data: DataRange | Number = self.right.run(
             device, data, out_indices, idx_range
         )
@@ -146,6 +240,40 @@ class QueryExpr(ASTNode):
             case ">":
                 return left_data.intersect_gt(right_data, out_indices)
 
+    def table_run(
+        self,
+        device: torch.Device,
+        data: dict,
+        out_indices: tuple[str],
+        idx_order: tuple[str],
+    ) -> torch.Tensor:
+        """
+        Returns:
+            torch.Tensor: ...
+        """
+        left_data: torch.Tensor = self.left.table_run(
+            device, data, out_indices, idx_order
+        )
+
+        if self.op == None:
+            return torch.ones(left_data.shape)
+
+        right_data: torch.Tensor = self.right.table_run(
+            device, data, out_indices, idx_order
+        )
+
+        match self.op:
+            case "==":
+                return left_data == right_data
+            case ">=":
+                return left_data >= right_data
+            case "<=":
+                return left_data <= right_data
+            case "<":
+                return left_data < right_data
+            case ">":
+                return left_data > right_data
+
 
 # ===================
 # Full Query (comma-separated q_expr list)
@@ -156,6 +284,7 @@ class QueryExpr(ASTNode):
 class Query(ASTNode):
     expressions: List[QueryExpr]
     out_indices: tuple[str] = None
+    idx_order: tuple[str] = None  # TODO: this should never be done
 
     def run(
         self,
@@ -169,3 +298,25 @@ class Query(ASTNode):
             out = expr.run(device, data, self.out_indices, out)
 
         return out.to_tensor(self.out_indices)
+
+    def table_run(
+        self,
+        device: torch.Device,
+        data: dict,
+        out_indices: tuple[str] = None,
+        idx_order: tuple[str] = None,
+    ) -> torch.Tensor:
+        """
+        Returns:
+            torch.Tensor: ...
+        """
+        table = None
+        for expr in self.expressions:
+            if table is None:
+                table = expr.table_run(device, data, out_indices, self.idx_order)
+            else:
+                table = table & expr.table_run(
+                    device, data, out_indices, self.idx_order
+                )
+
+        return torch.nonzero(table).T

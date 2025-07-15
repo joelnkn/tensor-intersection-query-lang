@@ -62,8 +62,10 @@ class Lexer:
 
     def _match_token(self) -> Optional[Token]:
         for token_type, pattern in token_regex.items():
-            regex = re.compile(pattern)
-            match = regex.match(self.query, self.position)
+            # regex = re.compile(pattern)
+            # match = regex.match(self.query, self.position)
+
+            match = re.match(pattern, self.query[self.position :])
 
             if match:
                 value = match.group(0)

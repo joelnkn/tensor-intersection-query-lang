@@ -75,7 +75,7 @@ class Range:
 
         return torch.equal(self_unique, other_unique)
 
-    def index_intersect(self, other: Range, shared: set = None) -> torch.tensor:
+    def index_intersect(self, other: Range, shared: set | None = None) -> torch.tensor:
         """
         Returns a n by 2 tensor where rows consist of all (i,j) such that
         `self.indices[i]` matches `other.indices[j]` between all shared symbols.
@@ -102,7 +102,7 @@ class Range:
 
             return intersect(self_canon_idx, other_canon_idx, self.device)
 
-        elif len(shared) == 1:
+        if len(shared) == 1:
             shared_index = next(iter(shared))
             return intersect(
                 self.indices[self.symbols[shared_index], :],
@@ -121,7 +121,9 @@ class Range:
 
             return torch.stack((i_vals, j_vals), dim=1)
 
-    def join(self, other: Range, join_idx: torch.Tensor, shared: set = None) -> Range:
+    def join(
+        self, other: Range, join_idx: torch.Tensor, shared: set | None = None
+    ) -> Range:
         """
         Returns a new Range by joining this Range with `other`, combining indices and symbols
         according to `join_idx`.
@@ -135,7 +137,7 @@ class Range:
             shared = self.symbols.keys() & other.symbols.keys()
 
         if len(shared) >= 1:
-            other_unshared = other.symbols.keys() - shared
+            other_unshared = set(other.symbols.keys()) - shared
 
             if other_unshared:
                 symbols = self.symbols.copy()
@@ -236,7 +238,7 @@ class DataRange:
         tensor: torch.Tensor,
         index: Sequence[str | DataRange],
         device: torch.Device,
-        index_range: Range = None,
+        index_range: Range | None = None,
     ):
         # TODO: should take and use index_range as an input (possibly None)
 
