@@ -27,9 +27,4 @@ def _sort_segment_intersect(v: torch.Tensor, w: torch.Tensor, device):
     return torch.stack((dim1, dim2), dim=1)
 
 
-def table_intersect(v: torch.Tensor, w: torch.Tensor, device):
-    index_table = v.unsqueeze(0) == w.unsqueeze(1)
-    return torch.nonzero(index_table)
-
-
 intersect = _sort_segment_intersect
