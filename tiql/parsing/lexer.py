@@ -49,7 +49,8 @@ class Lexer:
                 self.position += 1
                 continue  # skip all whitespace
 
-            matched_token = self._match_token()
+            # matched_token = self._match_token()
+            matched_token = self._match_token_no_regex()
 
             if matched_token is None:
                 raise ValueError(
@@ -73,4 +74,49 @@ class Lexer:
                 return Token(token_type, value)
 
         # No match found, this triggers the ValueError in tokenize()
+        return None
+
+    def _match_token_no_regex(self) -> Optional[Token]:
+
+        punctuation_tokens = {"(", ")", "[", "]", ",", "->"}
+        bin_op_tokens = {"+", "-", "*"}
+        query_op_tokens = {"<=", ">=", "==", "<", ">"}
+
+        c = self.query[self.position]
+
+        # Check for punctuation (check for "->" first)
+        if self.query[self.position : self.position + 2] == "->":
+            self.position += 2
+            return Token(TokenType.punctuation, "->")
+
+        if c in punctuation_tokens:
+            self.position += 1
+            return Token(TokenType.punctuation, c)
+
+        # Check for binary operators
+        if c in bin_op_tokens:
+            self.position += 1
+            return Token(TokenType.bin_op, c)
+
+        # Check for query operators (longest first)
+        if self.query[self.position : self.position + 2] in query_op_tokens:
+            op = self.query[self.position : self.position + 2]
+            self.position += 2
+            return Token(TokenType.query_op, op)
+
+        if c in "<>":
+            self.position += 1
+            return Token(TokenType.query_op, c)
+
+        # Check for identifiers
+        if c.isalpha() or c == "_":
+            start = self.position
+            while self.position < len(self.query) and (
+                self.query[self.position].isalnum() or self.query[self.position] == "_"
+            ):
+                self.position += 1
+            identifier = self.query[start : self.position]
+            return Token(TokenType.identifier, identifier)
+
+        # raise ValueError(f"Unexpected character at index {self.position}: {c}")
         return None

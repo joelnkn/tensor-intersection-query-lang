@@ -61,6 +61,7 @@ class Solver:
         """
         # print(f"Solving query on device: {self.device}")
         query_ast = parse(query)
+        table = True
         if table:
             solution = query_ast.table_run(self.device, data)
         else:

@@ -255,8 +255,8 @@ class QueryExpr(ASTNode):
             device, data, out_indices, idx_order
         )
 
-        if self.op == None:
-            return torch.ones(left_data.shape)
+        if self.op is None:
+            return torch.ones(left_data.shape, dtype=torch.bool), False
 
         right_data: torch.Tensor = self.right.table_run(
             device, data, out_indices, idx_order
@@ -264,15 +264,15 @@ class QueryExpr(ASTNode):
 
         match self.op:
             case "==":
-                return left_data == right_data
+                return left_data == right_data, True
             case ">=":
-                return left_data >= right_data
+                return left_data >= right_data, True
             case "<=":
-                return left_data <= right_data
+                return left_data <= right_data, True
             case "<":
-                return left_data < right_data
+                return left_data < right_data, True
             case ">":
-                return left_data > right_data
+                return left_data > right_data, True
 
 
 # ===================
@@ -311,12 +311,31 @@ class Query(ASTNode):
             torch.Tensor: ...
         """
         table = None
-        for expr in self.expressions:
-            if table is None:
-                table = expr.table_run(device, data, out_indices, self.idx_order)
-            else:
-                table = table & expr.table_run(
-                    device, data, out_indices, self.idx_order
-                )
 
-        return torch.nonzero(table).T
+        # track whether any dynamic operators where actually used,
+        # to determine if nonzero has to be called
+        dynamic = False
+        for expr in self.expressions:
+            run_table, run_dynamic = expr.table_run(
+                device, data, out_indices, self.idx_order
+            )
+            dynamic = dynamic or run_dynamic
+
+            if table is None:
+                table = run_table
+            else:
+                table = table & run_table
+
+        # return table, dynamic
+
+        if dynamic:
+            return torch.nonzero(table).T
+            # return torch.ones((len(table.shape), 5), dtype=torch.long)
+        else:
+            return torch.stack(
+                torch.meshgrid(
+                    *[torch.arange(s, device=table.device) for s in table.shape],
+                    indexing="ij",
+                ),
+                dim=0,
+            ).reshape(len(table.shape), -1)
