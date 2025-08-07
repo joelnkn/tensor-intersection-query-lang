@@ -35,10 +35,14 @@ def _sort_segment_intersect(
 def _chained_intersect(
     tensors: list[torch.Tensor], masks: list[torch.Tensor | None], device
 ):
+    """Output is shape (k,n) where k = len(tensors)"""
     assert len(tensors) == len(masks)
 
     if len(tensors) == 1:
-        return torch.arange(len(tensors[0]), device=device)[masks[0]].T
+        if masks[0] is None:
+            return torch.arange(len(tensors[0]), device=device).unsqueeze(1)
+
+        return torch.arange(len(tensors[0]), device=device)[masks[0]].unsqueeze(1)
 
     inter = _sort_segment_intersect(
         tensors[0], tensors[1], device=device, v_mask=masks[0], w_mask=masks[1]
