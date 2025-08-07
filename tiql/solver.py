@@ -32,6 +32,19 @@ def table_intersect(
     return solver.solve(query, kwargs, table=True)
 
 
+def simple_intersect(
+    query: str, device: Optional[torch.device] = None, **kwargs
+) -> torch.tensor:
+    """Intersect simple queries. All input tensors must be single dimensional,
+    with simple indices (no nesting). Only equality operator allowed. Can have multiple queries.
+
+    eg.
+    A[i] == B[j] == C[i], A[j] == C[k]
+    """
+    solver = Solver(device=device)
+    return solver.solve_simple(query, kwargs)
+
+
 class Solver:
     device: torch.device
 
@@ -61,10 +74,14 @@ class Solver:
         """
         # print(f"Solving query on device: {self.device}")
         query_ast = parse(query)
-        table = True
+        # table = True
         if table:
             solution = query_ast.table_run(self.device, data)
         else:
             solution = query_ast.run(self.device, data)
 
         return solution
+
+    def solve_simple(self, query: str, data: dict) -> torch.tensor:
+        query_ast = parse(query)
+        return query_ast.simple_run(self.device, data)

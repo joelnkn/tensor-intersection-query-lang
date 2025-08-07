@@ -8,6 +8,7 @@ from tiql.matching import (
     FuncCall,
     BinaryOp,
     Constant,
+    ChainExpr,
 )
 
 
@@ -99,19 +100,33 @@ class Parser:
             + tuple(idx for idx in self.all_indices if idx not in out_indices),
         )
 
-    def parse_q_expr(self) -> QueryExpr:
+    def parse_q_expr(self) -> ASTNode:
         """
         q_expr ::= expr query_op expr | expr
+        chained_expr ::= expr == expr ('==' expr)+
         """
-        left = self.parse_expr()
-        if self.peek().token_type == TokenType.query_op:
+        operands = [self.parse_expr()]
+        # TODO: should chained expressions assert that the operators are all the same?
+        while self.peek().token_type == TokenType.query_op:
             op_value = self.consume(TokenType.query_op).value  # relational op
-            right = self.parse_expr()
-        else:
-            op_value = None
-            right = None
+            operands.append(self.parse_expr())
 
-        return QueryExpr(left=left, op=op_value, right=right)
+        if len(operands) == 1:
+            return QueryExpr(left=operands[0], op=None, right=None)
+
+        if len(operands) == 2:
+            return QueryExpr(left=operands[0], op=op_value, right=operands[1])
+
+        return ChainExpr(operands=operands)
+        # left = self.parse_expr()
+        # if self.peek().token_type == TokenType.query_op:
+        #     op_value = self.consume(TokenType.query_op).value  # relational op
+        #     right = self.parse_expr()
+        # else:
+        #     op_value = None
+        #     right = None
+
+        # return QueryExpr(left=left, op=op_value, right=right)
 
     def parse_expr(self) -> ASTNode:
         """
