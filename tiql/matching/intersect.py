@@ -5,7 +5,7 @@ def _sort_segment_intersect(
     v: torch.Tensor, w: torch.Tensor, device, v_mask=None, w_mask=None
 ):
     if len(v) == 0:
-        return torch.empty((0, 2), dtype=torch.long)
+        return torch.empty((0, 2), dtype=torch.long, device=device)
     v_sorted, v_indices = torch.sort(v)
 
     _, v_counts = torch.unique_consecutive(v_sorted, return_counts=True)
