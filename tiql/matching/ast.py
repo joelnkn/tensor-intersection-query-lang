@@ -176,6 +176,7 @@ class Access(ASTNode):
                 if idx in self.indices
             ),
             dtype=torch.long,
+            device=device,
         )
         gather_query = f"Out[{','.join([self.format_index(idx, idx_order) for idx in idx_order if idx in self.indices])}] = {self.text(idx_order)}"
         out = einsum_gs(
@@ -340,7 +341,7 @@ class QueryExpr(ASTNode):
         )
 
         if self.op is None:
-            return torch.ones(left_data.shape, dtype=torch.bool), False
+            return torch.ones(left_data.shape, dtype=torch.bool, device=device), False
 
         right_data: torch.Tensor = self.right.table_run(
             device, data, out_indices, idx_order
