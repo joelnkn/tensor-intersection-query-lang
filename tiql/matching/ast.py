@@ -428,6 +428,12 @@ class Query(ASTNode):
             run_table, run_dynamic = expr.table_run(
                 device, data, out_indices, self.idx_order
             )
+            reduce_indices = tuple(
+                i for i, d in enumerate(self.idx_order) if d not in self.out_indices
+            )
+            if reduce_indices:
+                run_table = torch.all(run_table, dim=reduce_indices)
+
             dynamic = dynamic or run_dynamic
 
             if table is None:
@@ -435,7 +441,8 @@ class Query(ASTNode):
             else:
                 table = table & run_table
 
-        return table, dynamic
+        # return table, dynamic
+        # print("TABLES", self.out_indices, self.idx_order)
 
         if dynamic:
             return torch.nonzero(table).T

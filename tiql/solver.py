@@ -2,6 +2,7 @@ from typing import Optional
 import torch
 from tiql.parsing import parse
 from tiql.matching import Range
+import tiql.compiler_passes.compiler_passes
 
 
 def intersect(query: str, device: Optional[torch.device] = None, **kwargs):

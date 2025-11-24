@@ -6,9 +6,12 @@ def _sort_segment_intersect(
 ):
     if len(v) == 0:
         return torch.empty((0, 2), dtype=torch.long, device=device)
+
+    # TODO: only perform if dimension unsorted
     v_sorted, v_indices = torch.sort(v)
 
     _, v_counts = torch.unique_consecutive(v_sorted, return_counts=True)
+    # O(unique(W) log V + W log W + V log V)
     search = torch.searchsorted(v_sorted, w)
     search_clamped = torch.clamp(search, 0, len(v_sorted) - 1)
 
