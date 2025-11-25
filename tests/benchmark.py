@@ -25,6 +25,10 @@ QuerySpec = Tuple[str, ShapeFactory]
 QUERY_SPECS: Tuple[QuerySpec, ...] = (
     ("A[i] == B[j]", lambda size: {"A": (size,), "B": (size,)}),
     (
+        "A[i, c] == B[j, c] -> (i,j)",
+        lambda size: {"A": (size, 4), "B": (size, 4)},
+    ),
+    (
         "A[i, c] == B[j, c] -> (i)",
         lambda size: {"A": (size, 4), "B": (size, 4)},
     ),
@@ -105,7 +109,6 @@ def benchmark_query(
     *,
     warmup: int,
     trials: int,
-    flags: bool,
 ) -> None:
     for size in sizes:
         shape_spec = shape_factory(size)
@@ -124,7 +127,6 @@ def benchmark_query(
         #     compiled_call = lambda: compiled(query, **tensors, device=device)
 
         with torch._inductor.utils.fresh_inductor_cache():
-            update_all_compiler_passes(flags)
             compiled_with_flags = torch.compile(table_intersect, dynamic=True)
             compiled_with_flags(query, **tensors, device=device)
             compiled_with_flags_call = lambda: compiled_with_flags(
@@ -155,6 +157,7 @@ def benchmark_query(
 
 def main() -> None:
     args = parse_args()
+    update_all_compiler_passes(not args.no_flags)
     for query, shape_factory in QUERY_SPECS:
         benchmark_query(
             query,
@@ -162,7 +165,6 @@ def main() -> None:
             args.sizes,
             warmup=args.warmup,
             trials=args.trials,
-            flags=not args.no_flags,
         )
 
 

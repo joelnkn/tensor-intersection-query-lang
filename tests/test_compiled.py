@@ -12,12 +12,13 @@ device = None
     "query, tensor_dims",
     [
         ("A[i] == B[j]", {"A": (10,), "B": (10,)}),
-        # ("A[i, j] == B[j]", {"A": (10, 10), "B": (10,)}),
-        # ("A[i, c] == B[j, c] -> (i,c)", {"A": (10, 2), "B": (10, 2)}),
-        # ("A[i, c] == B[j, c] -> (i)", {"A": (10, 2), "B": (10, 2)}),
-        # ("A[i, j] == B[k]", {"A": (10, 20), "B": (10,)}),
-        # ("A[i, j] == B[j, k] -> (i,j,k)", {"A": (10, 15), "B": (15, 8)}),
-        # ("A[i, j] == B[j, k] -> (i,k)", {"A": (10, 5), "B": (5, 10)}),
+        ("A[i, j] == B[j]", {"A": (10, 10), "B": (10,)}),
+        ("A[i, j] == B[j] -> (i)", {"A": (10, 10), "B": (10,)}),
+        ("A[i, c] == B[j, c] -> (i,j)", {"A": (10, 2), "B": (10, 2)}),
+        ("A[i, c] == B[j, c] -> (i)", {"A": (10, 2), "B": (10, 2)}),
+        ("A[i, j] == B[k]", {"A": (10, 20), "B": (10,)}),
+        ("A[i, j] == B[j, k] -> (i,j,k)", {"A": (10, 15), "B": (15, 8)}),
+        ("A[i, j] == B[j, k] -> (i,k)", {"A": (10, 5), "B": (5, 10)}),
     ],
 )
 def test_compiled_output(query, tensor_dims):
@@ -29,16 +30,17 @@ def test_compiled_output(query, tensor_dims):
 
     with torch._inductor.utils.fresh_inductor_cache():
         compiled_intersect = torch.compile(table_intersect, dynamic=True)
-        result = compiled_intersect(query, **tensors, device=device).to(
-            dtype=torch.bool
-        )
+        result = compiled_intersect(
+            query, **tensors, device=device, return_table=True
+        ).to(dtype=torch.bool)
 
-    expected = table_intersect(query, **tensors, device=device)
+    expected = table_intersect(query, **tensors, device=device, return_table=True)
+    # breakpoint()
     assert torch.all(expected == result)
 
 
 def generate_random_unique_tensors(
-    shape_spec, *, max_value=50, device="cpu", dtype=torch.long
+    shape_spec, *, max_value=12, device="cpu", dtype=torch.long
 ):
     """
     For each tensor:
@@ -52,10 +54,11 @@ def generate_random_unique_tensors(
         numel = math.prod(shape)
 
         if max_value < numel:
-            raise ValueError(
-                f"max_value={max_value} must be >= tensor size {numel} "
-                f"to ensure uniqueness."
-            )
+            # raise ValueError(
+            #     f"max_value={max_value} must be >= tensor size {numel} "
+            #     f"to ensure uniqueness."
+            # )
+            max_value = int(numel * 1.2)
 
         # Sample a unique random subset of size numel, then reshape
         vals = torch.randperm(max_value, device=device, dtype=dtype)[:numel]

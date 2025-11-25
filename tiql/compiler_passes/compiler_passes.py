@@ -28,19 +28,19 @@ aten = torch.ops.aten
 
 # Compiler pass flags - set to False to disable a pass
 # COMPILER_PASS_FLAGS = {
-#     "pointless_bwand_replacement": True,
-#     "replace_table_intersection": True,
-#     "remove_scatter_nonzero": True,
-#     "replace_intersect_and": True,
-#     "replace_reduce_all": True,
+#     "pointless_bwand_replacement": False,
+#     "replace_table_intersection": False,
+#     "remove_scatter_nonzero": False,
+#     "replace_intersect_and": False,
+#     "replace_reduce_all": False,
 # }
 
 COMPILER_PASS_FLAGS = {
     "pointless_bwand_replacement": True,
-    "replace_table_intersection": False,
-    "remove_scatter_nonzero": False,
-    "replace_intersect_and": False,
-    "replace_reduce_all": False,
+    "replace_table_intersection": True,
+    "remove_scatter_nonzero": True,
+    "replace_intersect_and": True,
+    "replace_reduce_all": True,
 }
 
 
@@ -68,7 +68,7 @@ def update_all_compiler_passes(enabled: bool) -> None:
     for flag in COMPILER_PASS_FLAGS:
         COMPILER_PASS_FLAGS[flag] = enabled
 
-    _log_flags(f"Updated all flags to '{enabled}")
+    _log_flags(f"Updated all flags to '{enabled}'")
 
 
 def update_compiler_pass_flags(overrides: Mapping[str, bool]) -> None:
@@ -221,15 +221,15 @@ def vector_search_intersect(value_vectors: torch.Tensor, key_vectors: torch.Tens
         torch.flip(vector_labels, dims=[0])[: key_vectors.shape[0]], dims=[0]
     )
 
-    sorted_values = values
-    # sorted_values, _ = torch.sort(values)
+    # sorted_values = values
+    sorted_values, indices = torch.sort(values)
     search = torch.searchsorted(sorted_values, keys)
     sorted_values = torch.cat(
         (sorted_values, torch.full((1,), fill_value=-1, device=value_vectors.device))
     )
     mask = sorted_values[search] == keys
 
-    dim1 = search[mask].unsqueeze(1)
+    dim1 = indices[search[mask]].unsqueeze(1)
     dim2 = mask.nonzero()
 
     return dim1, dim2
@@ -295,7 +295,7 @@ def replace_table_intersection(match: Match, t0, t1):
 
     # return match.replace_by_example(
     #     repl_basic,
-    #     [t0, t1, match.int0, match.int1],
+    #     [t0, t1, 1, 0],
     # )
 
     def repl(t0, t1, shared):

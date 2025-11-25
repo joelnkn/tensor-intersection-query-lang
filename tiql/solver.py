@@ -31,7 +31,9 @@ def table_intersect(
 ) -> torch.tensor:
     """Intersect using an intersection table backend"""
     solver = Solver(device=device)
-    return solver.solve(query, kwargs, table=True)
+    return solver.solve(
+        query, kwargs, table=True, return_table=kwargs.get("return_table", False)
+    )
 
 
 def simple_intersect(
@@ -67,7 +69,9 @@ class Solver:
             self.device = torch.device("cpu")
             # print("CUDA not available, using CPU.")
 
-    def solve(self, query: str, data: dict, table: bool = False) -> torch.tensor:
+    def solve(
+        self, query: str, data: dict, table: bool = False, return_table=False
+    ) -> torch.tensor:
         """
         Solves a query using the configured device.
 
@@ -78,7 +82,7 @@ class Solver:
         query_ast = parse(query)
         # table = True
         if table:
-            solution = query_ast.table_run(self.device, data)
+            solution = query_ast.table_run(self.device, data, return_table=return_table)
         else:
             solution = query_ast.run(self.device, data)
 

@@ -414,6 +414,7 @@ class Query(ASTNode):
         data: dict,
         out_indices: tuple[str] = None,
         idx_order: tuple[str] = None,
+        return_table: bool = False,
     ) -> torch.Tensor:
         """
         Returns:
@@ -441,7 +442,8 @@ class Query(ASTNode):
             else:
                 table = table & run_table
 
-        return table
+        if return_table:
+            return table
         # return table, dynamic
         # print("TABLES", self.out_indices, self.idx_order)
 
