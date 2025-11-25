@@ -113,7 +113,6 @@ def benchmark_query(
         tensors = generate_random_unique_tensors(
             shape_spec,
             max_value=max(2 * max_tensor_size, 50),
-            device=device or "cpu",
         )
 
         eager = lambda: table_intersect(query, **tensors, device=device)
