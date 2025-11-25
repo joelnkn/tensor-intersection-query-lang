@@ -441,6 +441,7 @@ class Query(ASTNode):
             else:
                 table = table & run_table
 
+        return table
         # return table, dynamic
         # print("TABLES", self.out_indices, self.idx_order)
 

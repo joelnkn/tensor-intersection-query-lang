@@ -1,5 +1,5 @@
 import math
-from typing import Sequence
+from typing import Mapping
 import torch
 from torch._inductor.pattern_matcher import (
     _return_true,
@@ -27,13 +27,64 @@ from torch._inductor.fx_passes.post_grad import pass_patterns
 aten = torch.ops.aten
 
 # Compiler pass flags - set to False to disable a pass
+# COMPILER_PASS_FLAGS = {
+#     "pointless_bwand_replacement": True,
+#     "replace_table_intersection": True,
+#     "remove_scatter_nonzero": True,
+#     "replace_intersect_and": True,
+#     "replace_reduce_all": True,
+# }
+
 COMPILER_PASS_FLAGS = {
     "pointless_bwand_replacement": True,
-    "replace_table_intersection": True,
-    "remove_scatter_nonzero": True,
-    "replace_intersect_and": True,
-    "replace_reduce_all": True,
+    "replace_table_intersection": False,
+    "remove_scatter_nonzero": False,
+    "replace_intersect_and": False,
+    "replace_reduce_all": False,
 }
+
+
+def _log_flags(prefix: str) -> None:
+    print(f"{prefix}\n{COMPILER_PASS_FLAGS}")
+
+
+def get_compiler_pass_flags() -> dict:
+    """Return a copy of the current compiler pass flag map."""
+    return COMPILER_PASS_FLAGS.copy()
+
+
+def set_compiler_pass_flag(flag: str, *, enabled: bool) -> None:
+    """Set an individual compiler pass flag at runtime."""
+    if flag not in COMPILER_PASS_FLAGS:
+        raise KeyError(
+            f"Unknown compiler pass flag '{flag}'. "
+            f"Available flags: {sorted(COMPILER_PASS_FLAGS)}"
+        )
+    COMPILER_PASS_FLAGS[flag] = bool(enabled)
+    _log_flags(f"Updated compiler flag '{flag}'")
+
+
+def update_all_compiler_passes(enabled: bool) -> None:
+    for flag in COMPILER_PASS_FLAGS:
+        COMPILER_PASS_FLAGS[flag] = enabled
+
+    _log_flags(f"Updated all flags to '{enabled}")
+
+
+def update_compiler_pass_flags(overrides: Mapping[str, bool]) -> None:
+    """Bulk update compiler pass flags."""
+    unknown = set(overrides).difference(COMPILER_PASS_FLAGS)
+    if unknown:
+        raise KeyError(
+            f"Unknown compiler pass flag(s) {sorted(unknown)}. "
+            f"Available flags: {sorted(COMPILER_PASS_FLAGS)}"
+        )
+    for flag, enabled in overrides.items():
+        COMPILER_PASS_FLAGS[flag] = bool(enabled)
+    _log_flags("Updated compiler flags")
+
+
+_log_flags("Compiling with flags")
 
 
 def check_can_replace_pointless_bwand(match):
@@ -225,11 +276,10 @@ def search_intersect_unique(sorted_values: torch.Tensor, keys: torch.Tensor):
         KeywordArg("t1"),
     ),
     pass_dict=pass_patterns[1],
-    # extra_check=check_can_replace_with_bin_search,
     extra_check=check_can_replace_table_intersection,
 )
 def replace_table_intersection(match: Match, t0, t1):
-    print("found bin search opp", t0, t1)
+    # print("found bin search opp", t0, t1)
 
     # def repl_basic(v0, v1, int0, int1):
     #     sorted_values = v0.squeeze()

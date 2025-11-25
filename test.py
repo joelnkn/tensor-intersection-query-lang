@@ -2,6 +2,7 @@ from tiql.solver import intersect, table_intersect
 import torch
 import torch._inductor.utils
 
+# torch._dynamo.config.capture_dynamic_output_shape_ops = False
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
 # TORCH_LOGS_FORMAT=“%(levelname)s:%(message)s” TORCH_LOGS="aot_graphs" python test.py
@@ -17,10 +18,10 @@ else:
     print("CUDA not available, using CPU.")
 
 # Currently : Table (o), Binarysearch (o)
-# test_case = {
-#     "query": "A[i] == B[j] -> (i,j)",
-#     "tensor_dims": {"A": (10,), "B": (10,)},
-# }
+test_case = {
+    "query": "A[i] == B[j] -> (i,j)",
+    "tensor_dims": {"A": (10,), "B": (10,)},
+}
 
 # Currently : Table + torch.all (o)
 # TODO : Reduction Compiler pass
@@ -49,10 +50,10 @@ else:
 # unq_ij, counts = torch.unique(ij)
 # cmask = counts == 3
 # (unq_ij[cmask]
-test_case = {
-    "query": "A[i, c] == B[j, c] -> (i, j)",
-    "tensor_dims": {"A": (10, 5), "B": (10, 5)},
-}
+# test_case = {
+#     "query": "A[i, c] == B[j, c] -> (i, j)",
+#     "tensor_dims": {"A": (10, 5), "B": (10, 5)},
+# }
 
 
 # currently : table -> torch.all (o)
