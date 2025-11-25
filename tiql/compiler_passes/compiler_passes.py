@@ -281,56 +281,56 @@ def search_intersect_unique(sorted_values: torch.Tensor, keys: torch.Tensor):
 def replace_table_intersection(match: Match, t0, t1):
     # print("found bin search opp", t0, t1)
 
-    # def repl_basic(v0, v1, int0, int1):
-    #     sorted_values = v0.squeeze()
-    #     keys = v1.squeeze()
+    def repl_basic(v0, v1, int0, int1):
+        sorted_values = v0.squeeze()
+        keys = v1.squeeze()
 
-    #     dim1, dim2 = search_intersect_unique(sorted_values, keys)
+        dim1, dim2 = search_intersect_unique(sorted_values, keys)
 
-    #     size = (v0.shape[int0], v1.shape[int1])
+        size = (v0.shape[int0], v1.shape[int1])
 
-    #     out = torch.zeros(size, dtype=torch.long)
-    #     out = out.index_put((dim1, dim2), torch.ones((1, 1)))
-    #     return out
-
-    # return match.replace_by_example(
-    #     repl_basic,
-    #     [t0, t1, match.int0, match.int1],
-    # )
-
-    def repl(t0, t1, shared):
-        A0 = unravel_tensor(t0.shape, t0.device)
-        A1 = unravel_tensor(t1.shape, t0.device)
-
-        data0 = torch.flatten(t0)
-        data1 = torch.flatten(t1)
-
-        ind0 = [A0[i] for i in shared]
-        ind1 = [A1[i] for i in shared]
-
-        vec0 = torch.stack(ind0 + [data0], dim=1)
-        vec1 = torch.stack(ind1 + [data1], dim=1)
-
-        fdim0, fdim1 = vector_search_intersect(vec0, vec1)
-        dim0 = A0[:, fdim0]
-        dim1 = A1[:, fdim1]
-
-        z = torch.zeros((1,), device=t0.device, dtype=torch.long)
-        d = []
-        for i, (d0, d1) in enumerate(zip(t0.shape, t1.shape)):
-            if d0 > 1:
-                d.append(dim0[i])
-            elif d1 > 1:
-                d.append(dim1[i])
-            else:
-                d.append(z)
-
-        size = tuple(max(sz0, sz1) for sz0, sz1 in zip(t0.shape, t1.shape))
-
-        # TODO: instead of using `d` here, place 1s into flat tensor and then reshape to size
         out = torch.zeros(size, dtype=torch.long)
-        out = out.index_put(d, torch.ones((1,), device=t0.device))
+        out = out.index_put((dim1, dim2), torch.ones((1, 1)))
         return out
+
+    return match.replace_by_example(
+        repl_basic,
+        [t0, t1, match.int0, match.int1],
+    )
+
+    # def repl(t0, t1, shared):
+    #     A0 = unravel_tensor(t0.shape, t0.device)
+    #     A1 = unravel_tensor(t1.shape, t0.device)
+
+    #     data0 = torch.flatten(t0)
+    #     data1 = torch.flatten(t1)
+
+    #     ind0 = [A0[i] for i in shared]
+    #     ind1 = [A1[i] for i in shared]
+
+    #     vec0 = torch.stack(ind0 + [data0], dim=1)
+    #     vec1 = torch.stack(ind1 + [data1], dim=1)
+
+    #     fdim0, fdim1 = vector_search_intersect(vec0, vec1)
+    #     dim0 = A0[:, fdim0]
+    #     dim1 = A1[:, fdim1]
+
+    #     z = torch.zeros((1,), device=t0.device, dtype=torch.long)
+    #     d = []
+    #     for i, (d0, d1) in enumerate(zip(t0.shape, t1.shape)):
+    #         if d0 > 1:
+    #             d.append(dim0[i])
+    #         elif d1 > 1:
+    #             d.append(dim1[i])
+    #         else:
+    #             d.append(z)
+
+    #     size = tuple(max(sz0, sz1) for sz0, sz1 in zip(t0.shape, t1.shape))
+
+    #     # TODO: instead of using `d` here, place 1s into flat tensor and then reshape to size
+    #     out = torch.zeros(size, dtype=torch.long)
+    #     out = out.index_put(d, torch.ones((1,), device=t0.device))
+    #     return out
 
     return match.replace_by_example(
         repl,
