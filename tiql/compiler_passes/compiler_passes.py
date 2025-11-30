@@ -175,8 +175,6 @@ def check_can_replace_with_bin_search(match):
 
 
 def unravel_tensor(shape: tuple[int, ...], device=None):
-    if device is None:
-        device = torch.device("cpu")
     numel = math.prod(shape)
     flat = torch.arange(numel, dtype=torch.long, device=device)
 
@@ -328,7 +326,7 @@ def replace_table_intersection(match: Match, t0, t1):
         size = tuple(max(sz0, sz1) for sz0, sz1 in zip(t0.shape, t1.shape))
 
         # TODO: instead of using `d` here, place 1s into flat tensor and then reshape to size
-        out = torch.zeros(size, dtype=torch.long)
+        out = torch.zeros(size, dtype=torch.long, device=t0.device)
         out = out.index_put(d, torch.ones((1,), device=t0.device))
         return out
 
@@ -449,7 +447,7 @@ def replace_intersect_and(match: Match, *args, **kwargs):
         shared, _ = vector_search_intersect(ind0, ind1)
         dim = tuple(ind0[shared, i] for i in range(len(size)))
 
-        out = torch.zeros(size, dtype=torch.long)
+        out = torch.zeros(size, dtype=torch.long, device=ind0.device)
         out = out.index_put(dim, torch.ones((1,)))
 
         return out
@@ -503,7 +501,7 @@ def replace_reduce_all(match: Match, *args, **kwargs):
         size = [s for i, s in enumerate(shape) if i not in reduce_dims]
         dim = tuple(reduced_ind[:, i] for i in range(len(size)))
 
-        out = torch.zeros(size, dtype=torch.long)
+        out = torch.zeros(size, dtype=torch.long, device=reduced_ind.device)
         out = out.index_put(dim, torch.ones((1,)))
 
         return out
