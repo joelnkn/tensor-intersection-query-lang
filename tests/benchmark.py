@@ -10,6 +10,10 @@ import torch
 from tiql import table_intersect
 
 
+def hand_table(query, A, B, device=None):
+    return torch.nonzero(A[:, None] == B[None, :])
+
+
 def hand_intersect(query, A, B, device=None):
     # assert query == "A[i] == B[j]"
 
@@ -135,6 +139,7 @@ def benchmark_query(
 
         eager = lambda: table_intersect(query, **tensors, device=device)
         hand_eager = lambda: hand_intersect(query, **tensors, device=device)
+        hand_table_call = lambda: hand_table(query, **tensors, device=device)
 
         # with torch._inductor.utils.fresh_inductor_cache():
         #     update_all_compiler_passes(False)
@@ -166,6 +171,9 @@ def benchmark_query(
             compiled_hand_time, compiled_hand_std = time_callable(
                 compiled_hand_call, warmup=warmup, trials=trials
             )
+            hand_table_time, hand_table_std = time_callable(
+                hand_table_call, warmup=warmup, trials=trials
+            )
 
         speedup = (
             eager_time / compiled_with_flags_time
@@ -179,6 +187,7 @@ def benchmark_query(
             f"\ncompiled={compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
             f"\nhand={hand_time:.6f}s±{hand_std:.6f}s "
             f"\nc_hand={compiled_hand_time:.6f}s±{compiled_hand_std:.6f}s "
+            f"\nt_hand={hand_table_time:.6f}s±{hand_table_std:.6f}s "
             f"\nspeedup={speedup:.2f}x"
         )
 
