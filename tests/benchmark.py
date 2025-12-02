@@ -10,6 +10,21 @@ import torch
 from tiql import table_intersect
 
 
+def hand_intersect(query, A, B, device=None):
+    # assert query == "A[i] == B[j]"
+
+    sorted_values, indices = torch.sort(A)
+    keys = B
+    search = torch.searchsorted(sorted_values, keys)
+    mask = sorted_values[search % len(sorted_values)] == keys
+
+    dim1 = indices[search[mask]].unsqueeze(1)
+    dim2 = mask.nonzero()
+
+    ind = torch.stack((dim1, dim2), dim=1)
+    return ind
+
+
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
 if torch.cuda.is_available():
     device = torch.device("cuda")  # Default CUDA device
@@ -24,14 +39,14 @@ QuerySpec = Tuple[str, ShapeFactory]
 
 QUERY_SPECS: Tuple[QuerySpec, ...] = (
     ("A[i] == B[j]", lambda size: {"A": (size,), "B": (size,)}),
-    (
-        "A[i, c] == B[j, c] -> (i,j)",
-        lambda size: {"A": (size, 4), "B": (size, 4)},
-    ),
-    (
-        "A[i, c] == B[j, c] -> (i)",
-        lambda size: {"A": (size, 4), "B": (size, 4)},
-    ),
+    # (
+    #     "A[i, c] == B[j, c] -> (i,j)",
+    #     lambda size: {"A": (size, 4), "B": (size, 4)},
+    # ),
+    # (
+    #     "A[i, c] == B[j, c] -> (i)",
+    #     lambda size: {"A": (size, 4), "B": (size, 4)},
+    # ),
 )
 
 
@@ -119,6 +134,7 @@ def benchmark_query(
         )
 
         eager = lambda: table_intersect(query, **tensors, device=device)
+        hand_eager = lambda: hand_intersect(query, **tensors, device=device)
 
         # with torch._inductor.utils.fresh_inductor_cache():
         #     update_all_compiler_passes(False)
@@ -133,12 +149,22 @@ def benchmark_query(
                 query, **tensors, device=device
             )
 
+            compiled_hand = torch.compile(hand_intersect, dynamic=True)
+            compiled_hand(query, **tensors, device=device)
+            compiled_hand_call = lambda: compiled_hand(query, **tensors, device=device)
+
             eager_time, eager_std = time_callable(eager, warmup=warmup, trials=trials)
             # compiled_time, compiled_std = time_callable(
             #     compiled_call, warmup=warmup, trials=trials
             # )
             compiled_with_flags_time, compiled_with_flags_std = time_callable(
                 compiled_with_flags_call, warmup=warmup, trials=trials
+            )
+            hand_time, hand_std = time_callable(
+                hand_eager, warmup=warmup, trials=trials
+            )
+            compiled_hand_time, compiled_hand_std = time_callable(
+                compiled_hand_call, warmup=warmup, trials=trials
             )
 
         speedup = (
@@ -151,6 +177,8 @@ def benchmark_query(
             f"\neager={eager_time:.6f}s±{eager_std:.6f}s "
             # f"\ncompiled={compiled_time:.6f}s±{compiled_std:.6f}s "
             f"\ncompiled={compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
+            f"\nhand={hand_time:.6f}s±{hand_std:.6f}s "
+            f"\nc_hand={compiled_hand_time:.6f}s±{compiled_hand_std:.6f}s "
             f"\nspeedup={speedup:.2f}x"
         )
 
