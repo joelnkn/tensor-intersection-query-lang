@@ -5,7 +5,12 @@ import torch
 
 
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
-device = None
+if torch.cuda.is_available():
+    device = torch.device("cuda")  # Default CUDA device
+    print("Using CUDA:", torch.cuda.get_device_name(0))
+else:
+    device = torch.device("cpu")
+    print("CUDA not available, using CPU.")
 
 
 @pytest.mark.parametrize(
@@ -26,7 +31,7 @@ def test_compiled_output(query, tensor_dims):
     #     name: torch.randint(size=dims, high=10, device=device)
     #     for name, dims in tensor_dims.items()
     # }
-    tensors = generate_random_unique_tensors(tensor_dims)
+    tensors = generate_random_unique_tensors(tensor_dims, device=device)
 
     with torch._inductor.utils.fresh_inductor_cache():
         compiled_intersect = torch.compile(table_intersect, dynamic=True)
