@@ -197,7 +197,7 @@ def check_can_replace_table_intersection(match):
     shared = inc0 & inc1
     match.shared = shared
 
-    return len(inc0 - shared) and len(inc1 - shared)
+    return len(inc0 - shared) > 0 and len(inc1 - shared) > 0
 
 
 # A[i] == B[j,k]
@@ -225,7 +225,7 @@ def vector_search_intersect(value_vectors: torch.Tensor, key_vectors: torch.Tens
     sorted_values = torch.cat(
         (sorted_values, torch.full((1,), fill_value=-1, device=value_vectors.device))
     )
-    mask = sorted_values[search] == keys
+    mask = sorted_values[search] == keys  # TODO: is lack of % a bug?
 
     dim1 = indices[search[mask]].unsqueeze(1)
     dim2 = mask.nonzero()
@@ -246,7 +246,8 @@ def search_intersect_unique(sorted_values: torch.Tensor, keys: torch.Tensor):
     #
 
     search = torch.searchsorted(sorted_values, keys)
-    mask = sorted_values[search % len(sorted_values)] == keys
+    # mask = sorted_values[search % len(sorted_values)] == keys
+    mask = sorted_values[search % sorted_values.shape[0]] == keys
 
     dim1 = search[mask].unsqueeze(1)
     dim2 = mask.nonzero()
@@ -303,13 +304,21 @@ def replace_table_intersection(match: Match, t0, t1):
         data0 = torch.flatten(t0)
         data1 = torch.flatten(t1)
 
-        ind0 = [A0[i] for i in shared]
-        ind1 = [A1[i] for i in shared]
+        if len(shared) == 0:
+            # easy case => pure data intersect on flattened tensors
+            sorted_data0, ind0 = torch.sort(data0)
+            fsdim0, fdim1 = search_intersect_unique(sorted_data0, data1)
+            fdim0 = ind0[fsdim0]
+        else:
+            # else, compute vector intersection
+            ind0 = [A0[i] for i in shared]
+            ind1 = [A1[i] for i in shared]
 
-        vec0 = torch.stack(ind0 + [data0], dim=1)
-        vec1 = torch.stack(ind1 + [data1], dim=1)
+            vec0 = torch.stack(ind0 + [data0], dim=1)
+            vec1 = torch.stack(ind1 + [data1], dim=1)
 
-        fdim0, fdim1 = vector_search_intersect(vec0, vec1)
+            fdim0, fdim1 = vector_search_intersect(vec0, vec1)
+
         dim0 = A0[:, fdim0]
         dim1 = A1[:, fdim1]
 
@@ -325,7 +334,6 @@ def replace_table_intersection(match: Match, t0, t1):
 
         size = tuple(max(sz0, sz1) for sz0, sz1 in zip(t0.shape, t1.shape))
 
-        # TODO: instead of using `d` here, place 1s into flat tensor and then reshape to size
         out = torch.zeros(size, dtype=torch.long, device=t0.device)
         out = out.index_put(d, torch.ones((1,), device=t0.device))
         return out

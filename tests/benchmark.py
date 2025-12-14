@@ -4,6 +4,12 @@ import statistics
 import time
 from typing import Callable, Dict, Iterable, Tuple
 
+from tiql.handwritten import (
+    hand_intersect,
+    hand_reduce,
+    hand_shared_intersect,
+    hand_shared_intersect32,
+)
 from tiql.compiler_passes.compiler_passes import update_all_compiler_passes
 import torch
 
@@ -12,21 +18,6 @@ from tiql import table_intersect
 
 def hand_table(query, A, B, device=None):
     return torch.nonzero(A[:, None] == B[None, :])
-
-
-def hand_intersect(query, A, B, device=None):
-    # assert query == "A[i] == B[j]"
-
-    sorted_values, indices = torch.sort(A)
-    keys = B
-    search = torch.searchsorted(sorted_values, keys)
-    mask = sorted_values[search % len(sorted_values)] == keys
-
-    dim1 = indices[search[mask]].unsqueeze(1)
-    dim2 = mask.nonzero()
-
-    ind = torch.stack((dim1, dim2), dim=1)
-    return ind
 
 
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
@@ -38,15 +29,29 @@ else:
     print("CUDA not available, using CPU.")
 
 ShapeFactory = Callable[[int], Dict[str, Tuple[int, ...]]]
-QuerySpec = Tuple[str, ShapeFactory]
+QuerySpec = Tuple[str, ShapeFactory, Callable]
 
 
 QUERY_SPECS: Tuple[QuerySpec, ...] = (
-    ("A[i] == B[j]", lambda size: {"A": (size,), "B": (size,)}),
-    # (
-    #     "A[i, c] == B[j, c] -> (i,j)",
-    #     lambda size: {"A": (size, 4), "B": (size, 4)},
-    # ),
+    (
+        "A[i] == B[j]",
+        lambda size: {"A": (size,), "B": (size,)},
+        hand_intersect,
+    ),
+    (
+        "A[i, c] == B[j, c] -> (i,j)",
+        lambda size: {"A": (size, 4), "B": (size, 4)},
+        hand_reduce,
+    ),
+    (
+        "A[i, j] == B[j, k] -> (i,j,k)",
+        lambda size: {
+            "A": (int(size**0.5), int(size**0.5)),
+            "B": (int(size**0.5), int(size**0.5)),
+        },
+        # hand_shared_intersect,
+        hand_shared_intersect32,
+    ),
     # (
     #     "A[i, c] == B[j, c] -> (i)",
     #     lambda size: {"A": (size, 4), "B": (size, 4)},
@@ -128,6 +133,7 @@ def benchmark_query(
     *,
     warmup: int,
     trials: int,
+    hand_kernel: Callable | None = None,
 ) -> None:
     for size in sizes:
         shape_spec = shape_factory(size)
@@ -138,8 +144,8 @@ def benchmark_query(
         )
 
         eager = lambda: table_intersect(query, **tensors, device=device)
-        hand_eager = lambda: hand_intersect(query, **tensors, device=device)
-        hand_table_call = lambda: hand_table(query, **tensors, device=device)
+        hand_eager = lambda: hand_kernel(query, **tensors, device=device)
+        # hand_table_call = lambda: hand_table(query, **tensors, device=device)
 
         # with torch._inductor.utils.fresh_inductor_cache():
         #     update_all_compiler_passes(False)
@@ -154,7 +160,7 @@ def benchmark_query(
                 query, **tensors, device=device
             )
 
-            compiled_hand = torch.compile(hand_intersect, dynamic=True)
+            compiled_hand = torch.compile(hand_kernel, dynamic=True)
             compiled_hand(query, **tensors, device=device)
             compiled_hand_call = lambda: compiled_hand(query, **tensors, device=device)
 
@@ -171,9 +177,9 @@ def benchmark_query(
             compiled_hand_time, compiled_hand_std = time_callable(
                 compiled_hand_call, warmup=warmup, trials=trials
             )
-            hand_table_time, hand_table_std = time_callable(
-                hand_table_call, warmup=warmup, trials=trials
-            )
+            # hand_table_time, hand_table_std = time_callable(
+            #     hand_table_call, warmup=warmup, trials=trials
+            # )
 
         speedup = (
             eager_time / compiled_with_flags_time
@@ -187,21 +193,22 @@ def benchmark_query(
             f"\ncompiled={compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
             f"\nhand={hand_time:.6f}s±{hand_std:.6f}s "
             f"\nc_hand={compiled_hand_time:.6f}s±{compiled_hand_std:.6f}s "
-            f"\nt_hand={hand_table_time:.6f}s±{hand_table_std:.6f}s "
-            f"\nspeedup={speedup:.2f}x"
+            # f"\nt_hand={hand_table_time:.6f}s±{hand_table_std:.6f}s "
+            # f"\nspeedup={speedup:.2f}x"
         )
 
 
 def main() -> None:
     args = parse_args()
     update_all_compiler_passes(not args.no_flags)
-    for query, shape_factory in QUERY_SPECS:
+    for query, shape_factory, hand_kernel in QUERY_SPECS:
         benchmark_query(
             query,
             shape_factory,
             args.sizes,
             warmup=args.warmup,
             trials=args.trials,
+            hand_kernel=hand_kernel,
         )
 
 
