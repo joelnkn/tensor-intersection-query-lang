@@ -289,7 +289,7 @@ def replace_table_intersection(match: Match, t0, t1):
     #     size = (v0.shape[int0], v1.shape[int1])
 
     #     out = torch.zeros(size, dtype=torch.long)
-    #     out = out.index_put((dim1, dim2), torch.ones((1, 1)))
+    #     out = out.index_put((dim1, dim2), torch.ones((1, 1)))  # wrong device for torch ones
     #     return out
 
     # return match.replace_by_example(
@@ -456,7 +456,7 @@ def replace_intersect_and(match: Match, *args, **kwargs):
         dim = tuple(ind0[shared, i] for i in range(len(size)))
 
         out = torch.zeros(size, dtype=torch.long, device=ind0.device)
-        out = out.index_put(dim, torch.ones((1,)))
+        out = out.index_put(dim, torch.ones((1,), device=ind0.device))
 
         return out
 
@@ -510,7 +510,7 @@ def replace_reduce_all(match: Match, *args, **kwargs):
         dim = tuple(reduced_ind[:, i] for i in range(len(size)))
 
         out = torch.zeros(size, dtype=torch.long, device=reduced_ind.device)
-        out = out.index_put(dim, torch.ones((1,)))
+        out = out.index_put(dim, torch.ones((1,), device=reduced_ind.device))
 
         return out
 
