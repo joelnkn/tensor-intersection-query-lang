@@ -79,6 +79,7 @@ class Solver:
             query: The input query to solve.
         """
         # print(f"Solving query on device: {self.device}")
+        tiql.compiler_passes.compiler_passes.clear_reduce_dims()
         query_ast = parse(query)
         # table = True
         if table:

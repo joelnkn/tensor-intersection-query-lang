@@ -21,6 +21,9 @@ def hand_intersect(query, A, B, device=None):
 def hand_reduce(query, A, B, device=None):
     # A[i,c] == B[j,c] -> (i,j)
     all_vectors = torch.cat([A, B], dim=0)
+
+    # TODO: try imperfect *hashing* instead of torch.unique, then on "mask = ..." confirm equality
+    # this might not work for tensors with duplicates
     _, vector_labels = torch.unique(all_vectors, dim=0, return_inverse=True)
     values = vector_labels[: A.shape[0]]
     keys = vector_labels[B.shape[0] :]

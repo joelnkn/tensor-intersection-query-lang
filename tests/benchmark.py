@@ -40,7 +40,7 @@ QUERY_SPECS: Tuple[QuerySpec, ...] = (
     ),
     (
         "A[i, c] == B[j, c] -> (i,j)",
-        lambda size: {"A": (size, 4), "B": (size, 4)},
+        lambda size: {"A": (size // 4, 4), "B": (size // 4, 4)},
         hand_reduce,
     ),
     (

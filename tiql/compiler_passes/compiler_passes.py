@@ -41,6 +41,7 @@ COMPILER_PASS_FLAGS = {
     "remove_scatter_nonzero": True,
     "replace_intersect_and": True,
     "replace_reduce_all": True,
+    "use_bitpacking": True,  # should be used for 32-bit int types. TODO: support 32-bit float
 }
 
 
@@ -85,6 +86,27 @@ def update_compiler_pass_flags(overrides: Mapping[str, bool]) -> None:
 
 
 _log_flags("Compiling with flags")
+
+
+_reduce_dims: set[int] | None = None
+
+
+def set_reduce_dims(dims):
+    assert isinstance(dims, set)
+    global _reduce_dims
+    _reduce_dims = dims
+
+
+def get_reduce_dims() -> set[int]:
+    if _reduce_dims is None:
+        return set()
+
+    return _reduce_dims
+
+
+def clear_reduce_dims():
+    global _reduce_dims
+    _reduce_dims = None
 
 
 def check_can_replace_pointless_bwand(match):
@@ -138,6 +160,10 @@ def pointless_bwand_replacement(match: Match, shape, fill_value, device, dtype, 
 
     # only replace the output node, not all nodes
     match.replace_by_example(repl, [t1])
+
+
+def replace_reduce_tensor(match: Match):
+    raise NotImplementedError
 
 
 def check_can_replace_with_bin_search(match):
@@ -255,6 +281,16 @@ def search_intersect_unique(sorted_values: torch.Tensor, keys: torch.Tensor):
     return dim1, dim2
 
 
+def pack_u32_pair(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    a, b: int32 or int64 tensors with values in [0, 2^32)
+    returns: uint64 tensor where key = (a << 32) | b
+    """
+    a = a.to(torch.int64)
+    b = b.to(torch.int64)
+    return (a << 32) | b
+
+
 # if value is not sorted:
 #     ...
 #     torch.sort(v)
@@ -298,6 +334,49 @@ def replace_table_intersection(match: Match, t0, t1):
     # )
 
     def repl(t0, t1, shared):
+        # TODO: move reduce dim relabeling to separate compiler pass
+        # or verify that this does not have to be done
+        reduce_dims = get_reduce_dims()
+        clear_reduce_dims()
+        shared_reduce_dims = reduce_dims & shared
+        unshared_reduce_dims = reduce_dims - shared_reduce_dims
+
+        if len(shared_reduce_dims) != 0:
+            # tensor relabel using unique
+            D = sorted(shared_reduce_dims)
+            for d in D:
+                assert t0.shape[d] == t1.shape[d], f"size mismatch on dim {d}"
+
+            keep = [i for i in range(len(t0.shape)) if i not in shared_reduce_dims]
+            # move reduced dims to the end
+            t0p = t0.permute(*keep, *D)
+            t1p = t1.permute(*keep, *D)
+
+            # flatten reduced block into feature axis
+            P = math.prod([t0.shape[d] for d in D])
+            X0 = t0p.reshape(-1, P)
+            X1 = t1p.reshape(-1, P)
+
+            # relabel by unique rows
+            X = torch.cat([X0, X1], dim=0)
+            _, labels = torch.unique(X, dim=0, return_inverse=True)
+
+            N0 = X0.shape[0]
+            lab0 = labels[:N0]
+            # might have to replace with flipped version [see vector_search_intersect]
+            lab1 = labels[N0:]
+
+            # reshape back to remaining dims
+            t0 = lab0.reshape(*(t0.shape[i] for i in keep))
+            t1 = lab1.reshape(*(t1.shape[i] for i in keep))
+
+            shared -= shared_reduce_dims
+
+        if len(unshared_reduce_dims) != 0:
+            # all tensors must have the same element as part of reduction
+            # otherwise, label with value that doesn't appear in other tensor
+            raise NotImplementedError
+
         A0 = unravel_tensor(t0.shape, t0.device)
         A1 = unravel_tensor(t1.shape, t0.device)
 
@@ -306,9 +385,31 @@ def replace_table_intersection(match: Match, t0, t1):
 
         if len(shared) == 0:
             # easy case => pure data intersect on flattened tensors
-            sorted_data0, ind0 = torch.sort(data0)
-            fsdim0, fdim1 = search_intersect_unique(sorted_data0, data1)
+            sorted_pack0, ind0 = torch.sort(data0)
+            fsdim0, fdim1 = search_intersect_unique(sorted_pack0, data1)
             fdim0 = ind0[fsdim0]
+        elif COMPILER_PASS_FLAGS["use_bitpacking"]:
+            p = 1
+
+            ind0 = None
+            ind1 = None
+            for dim in shared:
+                if ind0 is None:
+                    ind0 = A0[dim]
+                    ind1 = A0[dim]
+                else:
+                    ind0 += p * A0[dim]
+                    ind1 += p * A1[dim]
+
+                p *= t0.shape[dim]
+
+            pack0 = pack_u32_pair(ind0, data0)
+            pack1 = pack_u32_pair(ind1, data1)
+
+            sorted_pack0, ind0 = torch.sort(pack0)
+            fsdim0, fdim1 = search_intersect_unique(sorted_pack0, pack1)
+            fdim0 = ind0[fsdim0]
+
         else:
             # else, compute vector intersection
             ind0 = [A0[i] for i in shared]
@@ -466,10 +567,38 @@ def replace_intersect_and(match: Match, *args, **kwargs):
     )
 
 
+def check_can_mark_reduce_all(match: Match):
+    return COMPILER_PASS_FLAGS["replace_reduce_all"]
+
+
 def check_can_replace_reduce_all(match: Match):
     if not COMPILER_PASS_FLAGS["replace_reduce_all"]:
         return False
     return match.kwargs["fill"] == 0
+
+
+@register_graph_pattern(
+    CallFunction(
+        aten.logical_not.default,
+        CallFunction(
+            aten.any.dims,
+            CallFunction(
+                aten.logical_not.default,
+                KeywordArg("table"),
+            ),
+            KeywordArg("dims"),
+        ),
+    ),
+    pass_dict=pass_patterns[0],
+    extra_check=check_can_mark_reduce_all,
+)
+def mark_reduce_all(match: Match, *args, **kwargs):
+    set_reduce_dims(set(kwargs["dims"]))
+
+    def repl(table):
+        return table
+
+    return match.replace_by_example(repl, [kwargs["table"]])
 
 
 @register_graph_pattern(
