@@ -23,6 +23,9 @@ from torch._inductor.pattern_matcher import (
     stable_topological_sort,
 )
 from torch._inductor.fx_passes.post_grad import pass_patterns
+import logging
+
+logger = logging.getLogger(__name__)
 
 aten = torch.ops.aten
 
@@ -46,7 +49,7 @@ COMPILER_PASS_FLAGS = {
 
 
 def _log_flags(prefix: str) -> None:
-    print(f"{prefix}\n{COMPILER_PASS_FLAGS}")
+    logger.debug(f"{prefix}\n{COMPILER_PASS_FLAGS}")
 
 
 def get_compiler_pass_flags() -> dict:
@@ -315,6 +318,7 @@ def pack_u32_pair(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 )
 def replace_table_intersection(match: Match, t0, t1):
     # print("found bin search opp", t0, t1)
+    logger.debug("Replacing table equality")
 
     # def repl_basic(v0, v1, int0, int1):
     #     sorted_values = v0.squeeze()
@@ -396,7 +400,7 @@ def replace_table_intersection(match: Match, t0, t1):
             for dim in shared:
                 if ind0 is None:
                     ind0 = A0[dim]
-                    ind1 = A0[dim]
+                    ind1 = A1[dim]
                 else:
                     ind0 += p * A0[dim]
                     ind1 += p * A1[dim]

@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import dataclass
 import math
 import statistics
 import time
@@ -11,13 +12,13 @@ from tiql.handwritten import (
     hand_shared_intersect32,
 )
 from tiql.compiler_passes.compiler_passes import update_all_compiler_passes
+from tiql.matching import Query
 import torch
 
 from tiql import table_intersect
+import logging
 
-
-def hand_table(query, A, B, device=None):
-    return torch.nonzero(A[:, None] == B[None, :])
+logger = logging.getLogger(__name__)
 
 
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
@@ -32,30 +33,87 @@ ShapeFactory = Callable[[int], Dict[str, Tuple[int, ...]]]
 QuerySpec = Tuple[str, ShapeFactory, Callable]
 
 
-QUERY_SPECS: Tuple[QuerySpec, ...] = (
+@dataclass(frozen=True)
+class QueryParams:
+    size: int
+    share_ratio: float = 0.5
+    skew: float = 1.0
+    reduce_dim: int = 4
+
+    @classmethod
+    def from_args(
+        cls,
+        *,
+        size: int,
+        args,
+    ) -> "QueryParams":
+        """
+        Build QueryParams from an argparse.Namespace.
+        Any field set to None in args falls back to the class default.
+        """
+
+        def pick(name):
+            val = getattr(args, name, None)
+            return val if val is not None else getattr(cls, name)
+
+        return cls(
+            size=size,
+            share_ratio=pick("share_ratio"),
+            skew=pick("skew"),
+            reduce_dim=pick("reduce_dim"),
+        )
+
+
+def _dims_Ai_eq_Bj(p: QueryParams) -> Dict[str, Tuple[int, ...]]:
+    return {"A": (int(p.size * p.skew),), "B": (int(p.size / p.skew),)}
+
+
+def _dims_Aic_eq_Bjc(p: QueryParams) -> Dict[str, Tuple[int, ...]]:
+    return {
+        "A": (int(p.size * p.skew / p.reduce_dim), p.reduce_dim),
+        "B": (int(p.size / (p.reduce_dim * p.skew)), p.reduce_dim),
+    }
+
+
+def _dims_Aij_eq_Bjk(p: QueryParams) -> Dict[str, Tuple[int, ...]]:
+    return {
+        "A": (
+            int(((p.size * p.skew)) ** (1 - p.share_ratio)),
+            int((p.size) ** (p.share_ratio)),
+        ),
+        "B": (
+            int((p.size) ** (p.share_ratio)),
+            int((p.size / p.skew) ** (1 - p.share_ratio)),
+        ),
+    }
+
+
+def _dims_Ai_eq_Bjk(p: QueryParams) -> Dict[str, Tuple[int, ...]]:
+    side = int((p.size / p.skew) ** 0.5)
+    return {"A": (int(p.size * p.skew),), "B": (side, side)}
+
+
+QUERY_SPECS: Tuple["QuerySpec", ...] = (
     (
         "A[i] == B[j]",
-        lambda size: {"A": (size,), "B": (size,)},
+        _dims_Ai_eq_Bj,
         hand_intersect,
     ),
     (
         "A[i, c] == B[j, c] -> (i,j)",
-        lambda size: {"A": (size // 4, 4), "B": (size // 4, 4)},
+        _dims_Aic_eq_Bjc,
         hand_reduce,
     ),
     (
         "A[i, j] == B[j, k] -> (i,j,k)",
-        lambda size: {
-            "A": (int(size**0.5), int(size**0.5)),
-            "B": (int(size**0.5), int(size**0.5)),
-        },
-        # hand_shared_intersect,
+        _dims_Aij_eq_Bjk,
         hand_shared_intersect32,
     ),
-    # (
-    #     "A[i, c] == B[j, c] -> (i)",
-    #     lambda size: {"A": (size, 4), "B": (size, 4)},
-    # ),
+    (
+        "A[i] == B[j, k] -> (i,j,k)",
+        _dims_Ai_eq_Bjk,
+        None,
+    ),
 )
 
 
@@ -86,7 +144,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-flags",
         action="store_true",
-        help="Use no custom compiler flags for test",
+        help="Exclude custom compiler flags from benchmark",
+    )
+    parser.add_argument(
+        "--no-table",
+        action="store_true",
+        help="Exclude table intersection from benchmark",
+    )
+    parser.add_argument("-s", "--skew", type=float, help="Update skew")
+    parser.add_argument("-r", "--share-ratio", type=float, help="Update share ratio")
+    parser.add_argument(
+        "-c", "--reduce-dim", type=int, help="Update reduce dim size (c)"
+    )
+    parser.add_argument(
+        "-q", "--query", nargs="+", type=int, help="Choose queries to run"
     )
     return parser.parse_args()
 
@@ -129,87 +200,101 @@ def time_callable(fn, *, warmup: int, trials: int) -> Tuple[float, float]:
 def benchmark_query(
     query: str,
     shape_factory: ShapeFactory,
-    sizes: Iterable[int],
+    params: QueryParams,
     *,
     warmup: int,
     trials: int,
     hand_kernel: Callable | None = None,
+    no_flags: bool = False,
+    no_table: bool = False,
+    index: int = None,
 ) -> None:
-    for size in sizes:
-        shape_spec = shape_factory(size)
-        max_tensor_size = max(math.prod(shape) for shape in shape_spec.values())
-        tensors = generate_random_unique_tensors(
-            shape_spec,
-            max_value=max(2 * max_tensor_size, 50),
+    shape_spec = shape_factory(params)
+    max_tensor_size = max(math.prod(shape) for shape in shape_spec.values())
+    tensors = generate_random_unique_tensors(
+        shape_spec,
+        max_value=max(2 * max_tensor_size, 50),
+    )
+
+    # initialize torch compile. get rid of big print block
+    torch.compile(lambda x: x + 1)(torch.zeros((1,)))
+
+    print(
+        f"\n\n{index}: [query={query!r} size={params.size} skew={params.skew} share_ratio={params.share_ratio} reduce_dim={params.reduce_dim}]"
+    )
+
+    if not no_table:
+        eager = lambda: table_intersect(query, **tensors, device=device)
+        with torch._inductor.utils.fresh_inductor_cache():
+            torch._dynamo.reset()
+            update_all_compiler_passes(False)
+            eager_time, eager_std = time_callable(eager, warmup=warmup, trials=trials)
+
+            compiled = torch.compile(table_intersect, dynamic=True)
+            compiled(query, **tensors, device=device)
+            compiled_call = lambda: compiled(query, **tensors, device=device)
+            compiled_time, compiled_std = time_callable(
+                compiled_call, warmup=warmup, trials=trials
+            )
+        print(
+            f"eager          = {eager_time:.6f}s±{eager_std:.6f}s "
+            f"\ncompiled (tab) = {compiled_time:.6f}s±{compiled_std:.6f}s "
         )
 
-        eager = lambda: table_intersect(query, **tensors, device=device)
-        hand_eager = lambda: hand_kernel(query, **tensors, device=device)
-        # hand_table_call = lambda: hand_table(query, **tensors, device=device)
-
-        # with torch._inductor.utils.fresh_inductor_cache():
-        #     update_all_compiler_passes(False)
-        #     compiled = torch.compile(table_intersect, dynamic=True)
-        #     compiled(query, **tensors, device=device)
-        #     compiled_call = lambda: compiled(query, **tensors, device=device)
-
+    if not no_flags:
         with torch._inductor.utils.fresh_inductor_cache():
+            torch._dynamo.reset()
+            update_all_compiler_passes(True)
             compiled_with_flags = torch.compile(table_intersect, dynamic=True)
             compiled_with_flags(query, **tensors, device=device)
             compiled_with_flags_call = lambda: compiled_with_flags(
                 query, **tensors, device=device
             )
 
-            compiled_hand = torch.compile(hand_kernel, dynamic=True)
-            compiled_hand(query, **tensors, device=device)
-            compiled_hand_call = lambda: compiled_hand(query, **tensors, device=device)
-
-            eager_time, eager_std = time_callable(eager, warmup=warmup, trials=trials)
-            # compiled_time, compiled_std = time_callable(
-            #     compiled_call, warmup=warmup, trials=trials
-            # )
             compiled_with_flags_time, compiled_with_flags_std = time_callable(
                 compiled_with_flags_call, warmup=warmup, trials=trials
             )
+        print(
+            f"compiled (bin) = {compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
+        )
+
+    if hand_kernel:
+        with torch._inductor.utils.fresh_inductor_cache():
+            hand_eager = lambda: hand_kernel(query, **tensors, device=device)
             hand_time, hand_std = time_callable(
                 hand_eager, warmup=warmup, trials=trials
             )
-            compiled_hand_time, compiled_hand_std = time_callable(
-                compiled_hand_call, warmup=warmup, trials=trials
-            )
-            # hand_table_time, hand_table_std = time_callable(
-            #     hand_table_call, warmup=warmup, trials=trials
-            # )
+        print(f"handwritten    = {hand_time:.6f}s±{hand_std:.6f}s ")
 
+    if not no_flags and not no_table:
         speedup = (
             eager_time / compiled_with_flags_time
             if compiled_with_flags_time
             else float("inf")
         )
-        print(
-            f"\n\n[query={query!r} size={size}] "
-            f"\neager={eager_time:.6f}s±{eager_std:.6f}s "
-            # f"\ncompiled={compiled_time:.6f}s±{compiled_std:.6f}s "
-            f"\ncompiled={compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
-            f"\nhand={hand_time:.6f}s±{hand_std:.6f}s "
-            f"\nc_hand={compiled_hand_time:.6f}s±{compiled_hand_std:.6f}s "
-            # f"\nt_hand={hand_table_time:.6f}s±{hand_table_std:.6f}s "
-            # f"\nspeedup={speedup:.2f}x"
-        )
+        print(f"speedup        = {speedup:.2f}x")
 
 
 def main() -> None:
     args = parse_args()
-    update_all_compiler_passes(not args.no_flags)
-    for query, shape_factory, hand_kernel in QUERY_SPECS:
-        benchmark_query(
-            query,
-            shape_factory,
-            args.sizes,
-            warmup=args.warmup,
-            trials=args.trials,
-            hand_kernel=hand_kernel,
-        )
+
+    for i, (query, shape_factory, hand_kernel) in enumerate(QUERY_SPECS):
+        if args.query is not None and i not in args.query:
+            continue
+
+        for size in args.sizes:
+            params = QueryParams.from_args(size=size, args=args)
+            benchmark_query(
+                query,
+                shape_factory,
+                params,
+                warmup=args.warmup,
+                trials=args.trials,
+                hand_kernel=hand_kernel,
+                no_flags=args.no_flags,
+                no_table=args.no_table,
+                index=i,
+            )
 
 
 if __name__ == "__main__":
