@@ -1,6 +1,8 @@
 import argparse
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
 import math
+import os
 import statistics
 import time
 from typing import Callable, Dict, Iterable, Tuple
@@ -197,6 +199,20 @@ def time_callable(fn, *, warmup: int, trials: int) -> Tuple[float, float]:
     return mean, stdev
 
 
+def measure_peak_cuda_bytes(fn, *args, **kwargs):
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.empty_cache()
+
+    torch.cuda.synchronize()
+    fn(*args, **kwargs)
+    torch.cuda.synchronize()
+
+    peak = torch.cuda.max_memory_allocated()
+    reserved_peak = torch.cuda.max_memory_reserved()
+    return peak, reserved_peak
+
+
 def benchmark_query(
     query: str,
     shape_factory: ShapeFactory,
@@ -208,6 +224,9 @@ def benchmark_query(
     no_flags: bool = False,
     no_table: bool = False,
     index: int = None,
+    return_record: bool = False,
+    out_jsonl: str | None = None,
+    method_tag: str | None = None,
 ) -> None:
     shape_spec = shape_factory(params)
     max_tensor_size = max(math.prod(shape) for shape in shape_spec.values())
@@ -217,11 +236,41 @@ def benchmark_query(
     )
 
     # initialize torch compile. get rid of big print block
-    torch.compile(lambda x: x + 1)(torch.zeros((1,)))
+    torch.compile(lambda x: x + 1)(torch.zeros((1,), device=device))
 
-    print(
-        f"\n\n{index}: [query={query!r} size={params.size} skew={params.skew} share_ratio={params.share_ratio} reduce_dim={params.reduce_dim}]"
+    header = (
+        f"\n\n{index}: [query={query!r} size={params.size} skew={params.skew} "
+        f"share_ratio={params.share_ratio} reduce_dim={params.reduce_dim}]"
     )
+    print(header)
+
+    record = {
+        "ts": time.time(),
+        "index": index,
+        "query": query,
+        "method_tag": method_tag,
+        "params": (
+            asdict(params)
+            if hasattr(params, "__dataclass_fields__")
+            else {
+                "size": params.size,
+                "share_ratio": params.share_ratio,
+                "skew": params.skew,
+                "reduce_dim": params.reduce_dim,
+            }
+        ),
+        "shape_spec": {k: list(v) for k, v in shape_spec.items()},
+        "device": str(device),
+        "torch": torch.__version__,
+        "cuda": torch.version.cuda,
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "results": {},  # filled below
+    }
+
+    eager_time = eager_std = None
+    compiled_time = compiled_std = None
+    compiled_with_flags_time = compiled_with_flags_std = None
+    hand_time = hand_std = None
 
     if not no_table:
         eager = lambda: table_intersect(query, **tensors, device=device)
@@ -236,10 +285,16 @@ def benchmark_query(
             compiled_time, compiled_std = time_callable(
                 compiled_call, warmup=warmup, trials=trials
             )
+
         print(
             f"eager          = {eager_time:.6f}s±{eager_std:.6f}s "
             f"\ncompiled (tab) = {compiled_time:.6f}s±{compiled_std:.6f}s "
         )
+        record["results"]["eager_table"] = {"mean_s": eager_time, "std_s": eager_std}
+        record["results"]["compiled_table"] = {
+            "mean_s": compiled_time,
+            "std_s": compiled_std,
+        }
 
     if not no_flags:
         with torch._inductor.utils.fresh_inductor_cache():
@@ -254,9 +309,14 @@ def benchmark_query(
             compiled_with_flags_time, compiled_with_flags_std = time_callable(
                 compiled_with_flags_call, warmup=warmup, trials=trials
             )
+
         print(
             f"compiled (bin) = {compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
         )
+        record["results"]["compiled_flags"] = {
+            "mean_s": compiled_with_flags_time,
+            "std_s": compiled_with_flags_std,
+        }
 
     if hand_kernel:
         with torch._inductor.utils.fresh_inductor_cache():
@@ -264,15 +324,21 @@ def benchmark_query(
             hand_time, hand_std = time_callable(
                 hand_eager, warmup=warmup, trials=trials
             )
-        print(f"handwritten    = {hand_time:.6f}s±{hand_std:.6f}s ")
 
-    if not no_flags and not no_table:
-        speedup = (
-            eager_time / compiled_with_flags_time
-            if compiled_with_flags_time
-            else float("inf")
-        )
+        print(f"handwritten    = {hand_time:.6f}s±{hand_std:.6f}s ")
+        record["results"]["handwritten"] = {"mean_s": hand_time, "std_s": hand_std}
+
+    if not no_flags and not no_table and compiled_with_flags_time:
+        speedup = eager_time / compiled_with_flags_time
         print(f"speedup        = {speedup:.2f}x")
+        record["results"]["speedup_eager_over_flags"] = speedup
+
+    if out_jsonl is not None:
+        os.makedirs(os.path.dirname(out_jsonl) or ".", exist_ok=True)
+        with open(out_jsonl, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    return record if return_record else None
 
 
 def main() -> None:
