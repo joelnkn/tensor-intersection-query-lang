@@ -264,13 +264,6 @@ def benchmark_query(
     out_jsonl: str | None = None,
     method_tag: str | None = None,
 ) -> None:
-    shape_spec = shape_factory(params)
-    max_tensor_size = max(math.prod(shape) for shape in shape_spec.values())
-    tensors = generate_random_unique_tensors(
-        shape_spec,
-        max_value=max(2 * max_tensor_size, 50),
-    )
-
     # initialize torch compile
     torch.compile(lambda x: x + 1)(torch.zeros((1,), device=device))
 
@@ -278,6 +271,18 @@ def benchmark_query(
         f"\n\n{index}: [query={query!r} size={params.size} "
         f"skew={params.skew} share_ratio={params.share_ratio} "
         f"reduce_dim={params.reduce_dim}]"
+    )
+
+    shape_spec = shape_factory(params)
+    for shape in shape_spec.values():
+        if 1 in shape:
+            print(f"Requested dimensions too small: {shape_spec}")
+            return None
+
+    max_tensor_size = max(math.prod(shape) for shape in shape_spec.values())
+    tensors = generate_random_unique_tensors(
+        shape_spec,
+        max_value=max(2 * max_tensor_size, 50),
     )
 
     record = {
