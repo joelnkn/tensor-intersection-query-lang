@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass
 import json
 import math
 import os
+from pathlib import Path
 import statistics
 import time
 from typing import Callable, Dict, Iterable, Tuple
@@ -16,6 +17,8 @@ from tiql.handwritten import (
 from tiql.compiler_passes.compiler_passes import update_all_compiler_passes
 from tiql.matching import Query
 import torch
+from torch.profiler import profile, ProfilerActivity
+
 
 from tiql import table_intersect
 import logging
@@ -161,6 +164,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-q", "--query", nargs="+", type=int, help="Choose queries to run"
     )
+    parser.add_argument("-o", "--out", type=str, help="JSONL output path")
     return parser.parse_args()
 
 
@@ -199,20 +203,51 @@ def time_callable(fn, *, warmup: int, trials: int) -> Tuple[float, float]:
     return mean, stdev
 
 
-def measure_peak_cuda_bytes(fn, *args, **kwargs):
-    torch.cuda.synchronize()
-    torch.cuda.reset_peak_memory_stats()
-    torch.cuda.empty_cache()
-
-    torch.cuda.synchronize()
-    fn(*args, **kwargs)
-    torch.cuda.synchronize()
-
-    peak = torch.cuda.max_memory_allocated()
-    reserved_peak = torch.cuda.max_memory_reserved()
-    return peak, reserved_peak
+MetricFn = Callable[[Callable, int, int], Dict[str, float]]
 
 
+def time_and_memory_metric(
+    fn: Callable, *, warmup: int, trials: int, compiled: bool = False
+) -> Dict[str, float]:
+    """
+    Runs fn and returns:
+      - mean_s, std_s  (from time_callable)
+      - max_allocated_bytes
+      - max_reserved_bytes
+    """
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.empty_cache()
+
+    mean_s, std_s = time_callable(fn, warmup=warmup, trials=trials)
+    kernels = None
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        max_alloc = torch.cuda.max_memory_allocated()
+        max_reserved = torch.cuda.max_memory_reserved()
+
+        if compiled:
+            with profile(activities=[ProfilerActivity.CUDA]) as prof:
+                fn()
+                kernels = sum(
+                    "triton" in e.key or "cuda" in e.key for e in prof.key_averages()
+                )
+    else:
+        max_alloc = None
+        max_reserved = None
+
+    return {
+        "mean_s": mean_s,
+        "std_s": std_s,
+        "max_allocated_bytes": max_alloc,
+        "max_reserved_bytes": max_reserved,
+        "cuda_kernel_count": kernels,
+    }
+
+
+# TODO: cuda kernel count, compile time
 def benchmark_query(
     query: str,
     shape_factory: ShapeFactory,
@@ -220,6 +255,7 @@ def benchmark_query(
     *,
     warmup: int,
     trials: int,
+    metric_fn: MetricFn = time_and_memory_metric,
     hand_kernel: Callable | None = None,
     no_flags: bool = False,
     no_table: bool = False,
@@ -235,103 +271,99 @@ def benchmark_query(
         max_value=max(2 * max_tensor_size, 50),
     )
 
-    # initialize torch compile. get rid of big print block
+    # initialize torch compile
     torch.compile(lambda x: x + 1)(torch.zeros((1,), device=device))
 
-    header = (
-        f"\n\n{index}: [query={query!r} size={params.size} skew={params.skew} "
-        f"share_ratio={params.share_ratio} reduce_dim={params.reduce_dim}]"
+    print(
+        f"\n\n{index}: [query={query!r} size={params.size} "
+        f"skew={params.skew} share_ratio={params.share_ratio} "
+        f"reduce_dim={params.reduce_dim}]"
     )
-    print(header)
 
     record = {
         "ts": time.time(),
         "index": index,
         "query": query,
         "method_tag": method_tag,
-        "params": (
-            asdict(params)
-            if hasattr(params, "__dataclass_fields__")
-            else {
-                "size": params.size,
-                "share_ratio": params.share_ratio,
-                "skew": params.skew,
-                "reduce_dim": params.reduce_dim,
-            }
-        ),
+        "params": asdict(params),
         "shape_spec": {k: list(v) for k, v in shape_spec.items()},
         "device": str(device),
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-        "results": {},  # filled below
+        "results": {},
     }
-
-    eager_time = eager_std = None
-    compiled_time = compiled_std = None
-    compiled_with_flags_time = compiled_with_flags_std = None
-    hand_time = hand_std = None
 
     if not no_table:
         eager = lambda: table_intersect(query, **tensors, device=device)
+
         with torch._inductor.utils.fresh_inductor_cache():
             torch._dynamo.reset()
             update_all_compiler_passes(False)
-            eager_time, eager_std = time_callable(eager, warmup=warmup, trials=trials)
+            eager_metrics = metric_fn(eager, warmup=warmup, trials=trials)
 
+            t0 = time.perf_counter()
             compiled = torch.compile(table_intersect, dynamic=True)
             compiled(query, **tensors, device=device)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            compile_s = time.perf_counter() - t0
+
             compiled_call = lambda: compiled(query, **tensors, device=device)
-            compiled_time, compiled_std = time_callable(
-                compiled_call, warmup=warmup, trials=trials
+            compiled_metrics = metric_fn(
+                compiled_call, warmup=warmup, trials=trials, compiled=True
             )
+            compiled_metrics["compile_s"] = compile_s
 
         print(
-            f"eager          = {eager_time:.6f}s±{eager_std:.6f}s "
-            f"\ncompiled (tab) = {compiled_time:.6f}s±{compiled_std:.6f}s "
+            f"eager          = {eager_metrics['mean_s']:.6f}s "
+            f"\ncompiled (tab) = {compiled_metrics['mean_s']:.6f}s "
         )
-        record["results"]["eager_table"] = {"mean_s": eager_time, "std_s": eager_std}
-        record["results"]["compiled_table"] = {
-            "mean_s": compiled_time,
-            "std_s": compiled_std,
-        }
+
+        record["results"]["eager_table"] = eager_metrics
+        record["results"]["compiled_table"] = compiled_metrics
 
     if not no_flags:
         with torch._inductor.utils.fresh_inductor_cache():
             torch._dynamo.reset()
             update_all_compiler_passes(True)
+
+            t0 = time.perf_counter()
             compiled_with_flags = torch.compile(table_intersect, dynamic=True)
             compiled_with_flags(query, **tensors, device=device)
-            compiled_with_flags_call = lambda: compiled_with_flags(
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            compile_s = time.perf_counter() - t0
+
+            compiled_flags_call = lambda: compiled_with_flags(
                 query, **tensors, device=device
             )
 
-            compiled_with_flags_time, compiled_with_flags_std = time_callable(
-                compiled_with_flags_call, warmup=warmup, trials=trials
+            flags_metrics = metric_fn(
+                compiled_flags_call, warmup=warmup, trials=trials, compiled=True
             )
+            flags_metrics["compile_s"] = compile_s
 
-        print(
-            f"compiled (bin) = {compiled_with_flags_time:.6f}s±{compiled_with_flags_std:.6f}s "
-        )
-        record["results"]["compiled_flags"] = {
-            "mean_s": compiled_with_flags_time,
-            "std_s": compiled_with_flags_std,
-        }
+        print(f"compiled (bin) = {flags_metrics['mean_s']:.6f}s")
+        record["results"]["compiled_flags"] = flags_metrics
 
     if hand_kernel:
         with torch._inductor.utils.fresh_inductor_cache():
-            hand_eager = lambda: hand_kernel(query, **tensors, device=device)
-            hand_time, hand_std = time_callable(
-                hand_eager, warmup=warmup, trials=trials
-            )
+            hand_call = lambda: hand_kernel(query, **tensors, device=device)
+            hand_metrics = metric_fn(hand_call, warmup=warmup, trials=trials)
 
-        print(f"handwritten    = {hand_time:.6f}s±{hand_std:.6f}s ")
-        record["results"]["handwritten"] = {"mean_s": hand_time, "std_s": hand_std}
+        print(f"handwritten    = {hand_metrics['mean_s']:.6f}s")
+        record["results"]["handwritten"] = hand_metrics
 
-    if not no_flags and not no_table and compiled_with_flags_time:
-        speedup = eager_time / compiled_with_flags_time
+    if not no_flags and not no_table and "compiled_flags" in record["results"]:
+        speedup = (
+            record["results"]["compiled_table"]["mean_s"]
+            / record["results"]["compiled_flags"]["mean_s"]
+        )
         print(f"speedup        = {speedup:.2f}x")
-        record["results"]["speedup_eager_over_flags"] = speedup
+        record["results"]["speedup_flags_over_table"] = speedup
+
+    # print(record["results"])
 
     if out_jsonl is not None:
         os.makedirs(os.path.dirname(out_jsonl) or ".", exist_ok=True)
@@ -343,6 +375,9 @@ def benchmark_query(
 
 def main() -> None:
     args = parse_args()
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     for i, (query, shape_factory, hand_kernel) in enumerate(QUERY_SPECS):
         if args.query is not None and i not in args.query:
@@ -360,6 +395,8 @@ def main() -> None:
                 no_flags=args.no_flags,
                 no_table=args.no_table,
                 index=i,
+                out_jsonl=str(out_path),
+                method_tag="bench_v1",
             )
 
 
